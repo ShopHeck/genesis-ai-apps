@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import { ArrowRight, Play, Sparkles, Zap, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import heroMockup from "@/assets/hero-mockup.jpg";
@@ -52,11 +53,14 @@ const HeroSection = () => {
               className="mt-8 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start"
             >
               <Button
+                asChild
                 size="lg"
                 className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)] text-base px-8 group"
               >
-                Start Building Free
-                <ArrowRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                <Link to="/generator">
+                  Start Building Free
+                  <ArrowRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                </Link>
               </Button>
               <Button
                 size="lg"

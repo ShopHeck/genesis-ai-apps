@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,8 +38,8 @@ const Navbar = () => {
           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
             Log in
           </Button>
-          <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-sm)]">
-            Start Building
+          <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-sm)]">
+            <Link to="/generator">Start Building</Link>
           </Button>
         </div>
 
@@ -69,8 +70,8 @@ const Navbar = () => {
                   {link.label}
                 </a>
               ))}
-              <Button size="sm" className="mt-2 bg-primary text-primary-foreground">
-                Start Building
+              <Button asChild size="sm" className="mt-2 bg-primary text-primary-foreground">
+                <Link to="/generator" onClick={() => setMobileOpen(false)}>Start Building</Link>
               </Button>
             </div>
           </motion.div>

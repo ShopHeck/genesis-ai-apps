@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -12,6 +12,10 @@ import {
   Apple,
   Wand2,
   AlertTriangle,
+  Check,
+  Brain,
+  Code2,
+  Package,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -35,40 +39,76 @@ const EXAMPLE_PROMPTS = [
   "A workout logger with custom routines, rest timers, and SwiftData persistence.",
 ];
 
+type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";
+
+const STAGES: { id: Exclude<Stage, "idle" | "error">; label: string; hint: string; icon: typeof Brain }[] = [
+  { id: "analyzing", label: "Analyzing your prompt", hint: "Designing app architecture & feature set", icon: Brain },
+  { id: "generating", label: "Generating Swift source files", hint: "Writing SwiftUI views, models & SwiftData schema", icon: Code2 },
+  { id: "bundling", label: "Bundling Xcode project", hint: "Packaging files into a downloadable .zip", icon: Package },
+  { id: "done", label: "Ready for Xcode", hint: "Open in Xcode 16+, sign, and ship", icon: Check },
+];
+
 export default function Generator() {
   const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef<number | null>(null);
+
+  const loading = stage === "analyzing" || stage === "generating" || stage === "bundling";
+
+  // Tick elapsed seconds while loading
+  useEffect(() => {
+    if (!loading) return;
+    const id = setInterval(() => {
+      if (startedAt.current) setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
+    }, 250);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const handleGenerate = async () => {
     if (prompt.trim().length < 10) {
       toast.error("Describe your app in a bit more detail.");
       return;
     }
-    setLoading(true);
     setError(null);
     setProject(null);
     setSelectedFile(null);
+    setElapsed(0);
+    startedAt.current = Date.now();
+    setStage("analyzing");
+
+    // Auto-advance from "analyzing" to "generating" after a short delay so the
+    // user sees both phases even though they happen inside one network call.
+    const analyzeTimer = setTimeout(() => {
+      setStage((s) => (s === "analyzing" ? "generating" : s));
+    }, 1800);
 
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("generate-ios-app", {
         body: { prompt },
       });
+      clearTimeout(analyzeTimer);
       if (fnErr) throw new Error(fnErr.message);
       if (data?.error) throw new Error(data.error);
       if (!data?.files?.length) throw new Error("Empty project returned.");
 
+      setStage("bundling");
+      // Brief beat so the bundling step is visible
+      await new Promise((r) => setTimeout(r, 500));
+
       setProject(data as Project);
       setSelectedFile(data.files[0].path);
+      setStage("done");
       toast.success(`${data.appName} generated — ${data.files.length} files`);
     } catch (e) {
+      clearTimeout(analyzeTimer);
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
+      setStage("error");
       toast.error(msg);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -180,18 +220,112 @@ export default function Generator() {
           </div>
         </motion.section>
 
-        {/* Loading skeleton */}
-        {loading && (
-          <div className="glass-panel p-8 text-center">
-            <Loader2 className="animate-spin mx-auto mb-4 text-primary" size={28} />
-            <p className="text-sm text-muted-foreground">
-              Designing architecture, writing SwiftUI views, wiring SwiftData models…
-            </p>
-            <p className="text-xs text-muted-foreground/60 mt-2">
-              This usually takes 20–60 seconds.
-            </p>
-          </div>
-        )}
+        {/* Multi-step progress */}
+        <AnimatePresence>
+          {loading && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="glass-panel p-6 sm:p-8 mb-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-primary font-medium">
+                    Building your app
+                  </p>
+                  <h2 className="font-display text-xl font-semibold mt-1">
+                    {STAGES.find((s) => s.id === stage)?.label ?? "Working…"}
+                  </h2>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+                    {elapsed}s
+                  </p>
+                  <p className="text-xs text-muted-foreground">~20–60s typical</p>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="h-1.5 w-full rounded-full bg-card/60 overflow-hidden mb-6">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: "var(--gradient-glow)" }}
+                  initial={{ width: "5%" }}
+                  animate={{
+                    width:
+                      stage === "analyzing"
+                        ? "25%"
+                        : stage === "generating"
+                          ? "70%"
+                          : stage === "bundling"
+                            ? "95%"
+                            : "100%",
+                  }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                />
+              </div>
+
+              {/* Steps */}
+              <ol className="space-y-3">
+                {STAGES.filter((s) => s.id !== "done").map((step, i) => {
+                  const order = ["analyzing", "generating", "bundling"];
+                  const currentIdx = order.indexOf(stage);
+                  const stepIdx = order.indexOf(step.id);
+                  const status: "pending" | "active" | "complete" =
+                    stepIdx < currentIdx
+                      ? "complete"
+                      : stepIdx === currentIdx
+                        ? "active"
+                        : "pending";
+                  const Icon = step.icon;
+                  return (
+                    <li
+                      key={step.id}
+                      className={`flex items-start gap-3 rounded-lg p-3 transition-colors ${
+                        status === "active"
+                          ? "bg-primary/5 border border-primary/30"
+                          : "border border-transparent"
+                      }`}
+                    >
+                      <div
+                        className={`shrink-0 mt-0.5 w-7 h-7 rounded-full flex items-center justify-center ${
+                          status === "complete"
+                            ? "bg-primary/15 text-primary"
+                            : status === "active"
+                              ? "bg-primary text-primary-foreground shadow-[var(--shadow-glow-sm)]"
+                              : "bg-card/60 text-muted-foreground"
+                        }`}
+                      >
+                        {status === "complete" ? (
+                          <Check size={14} strokeWidth={3} />
+                        ) : status === "active" ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Icon size={14} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-sm font-medium ${
+                            status === "pending" ? "text-muted-foreground" : "text-foreground"
+                          }`}
+                        >
+                          {step.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground/80 mt-0.5">{step.hint}</p>
+                      </div>
+                      <span className="text-xs font-mono text-muted-foreground/60 mt-1">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
 
         {/* Error */}
         {error && !loading && (

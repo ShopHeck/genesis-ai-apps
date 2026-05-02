@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -12,6 +12,10 @@ import {
   Apple,
   Wand2,
   AlertTriangle,
+  Check,
+  Brain,
+  Code2,
+  Package,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -35,40 +39,76 @@ const EXAMPLE_PROMPTS = [
   "A workout logger with custom routines, rest timers, and SwiftData persistence.",
 ];
 
+type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";
+
+const STAGES: { id: Exclude<Stage, "idle" | "error">; label: string; hint: string; icon: typeof Brain }[] = [
+  { id: "analyzing", label: "Analyzing your prompt", hint: "Designing app architecture & feature set", icon: Brain },
+  { id: "generating", label: "Generating Swift source files", hint: "Writing SwiftUI views, models & SwiftData schema", icon: Code2 },
+  { id: "bundling", label: "Bundling Xcode project", hint: "Packaging files into a downloadable .zip", icon: Package },
+  { id: "done", label: "Ready for Xcode", hint: "Open in Xcode 16+, sign, and ship", icon: Check },
+];
+
 export default function Generator() {
   const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef<number | null>(null);
+
+  const loading = stage === "analyzing" || stage === "generating" || stage === "bundling";
+
+  // Tick elapsed seconds while loading
+  useEffect(() => {
+    if (!loading) return;
+    const id = setInterval(() => {
+      if (startedAt.current) setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
+    }, 250);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const handleGenerate = async () => {
     if (prompt.trim().length < 10) {
       toast.error("Describe your app in a bit more detail.");
       return;
     }
-    setLoading(true);
     setError(null);
     setProject(null);
     setSelectedFile(null);
+    setElapsed(0);
+    startedAt.current = Date.now();
+    setStage("analyzing");
+
+    // Auto-advance from "analyzing" to "generating" after a short delay so the
+    // user sees both phases even though they happen inside one network call.
+    const analyzeTimer = setTimeout(() => {
+      setStage((s) => (s === "analyzing" ? "generating" : s));
+    }, 1800);
 
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("generate-ios-app", {
         body: { prompt },
       });
+      clearTimeout(analyzeTimer);
       if (fnErr) throw new Error(fnErr.message);
       if (data?.error) throw new Error(data.error);
       if (!data?.files?.length) throw new Error("Empty project returned.");
 
+      setStage("bundling");
+      // Brief beat so the bundling step is visible
+      await new Promise((r) => setTimeout(r, 500));
+
       setProject(data as Project);
       setSelectedFile(data.files[0].path);
+      setStage("done");
       toast.success(`${data.appName} generated — ${data.files.length} files`);
     } catch (e) {
+      clearTimeout(analyzeTimer);
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
+      setStage("error");
       toast.error(msg);
-    } finally {
-      setLoading(false);
     }
   };
 

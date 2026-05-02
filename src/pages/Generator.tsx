@@ -220,18 +220,112 @@ export default function Generator() {
           </div>
         </motion.section>
 
-        {/* Loading skeleton */}
-        {loading && (
-          <div className="glass-panel p-8 text-center">
-            <Loader2 className="animate-spin mx-auto mb-4 text-primary" size={28} />
-            <p className="text-sm text-muted-foreground">
-              Designing architecture, writing SwiftUI views, wiring SwiftData models…
-            </p>
-            <p className="text-xs text-muted-foreground/60 mt-2">
-              This usually takes 20–60 seconds.
-            </p>
-          </div>
-        )}
+        {/* Multi-step progress */}
+        <AnimatePresence>
+          {loading && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="glass-panel p-6 sm:p-8 mb-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-primary font-medium">
+                    Building your app
+                  </p>
+                  <h2 className="font-display text-xl font-semibold mt-1">
+                    {STAGES.find((s) => s.id === stage)?.label ?? "Working…"}
+                  </h2>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+                    {elapsed}s
+                  </p>
+                  <p className="text-xs text-muted-foreground">~20–60s typical</p>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="h-1.5 w-full rounded-full bg-card/60 overflow-hidden mb-6">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: "var(--gradient-glow)" }}
+                  initial={{ width: "5%" }}
+                  animate={{
+                    width:
+                      stage === "analyzing"
+                        ? "25%"
+                        : stage === "generating"
+                          ? "70%"
+                          : stage === "bundling"
+                            ? "95%"
+                            : "100%",
+                  }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                />
+              </div>
+
+              {/* Steps */}
+              <ol className="space-y-3">
+                {STAGES.filter((s) => s.id !== "done").map((step, i) => {
+                  const order = ["analyzing", "generating", "bundling"];
+                  const currentIdx = order.indexOf(stage);
+                  const stepIdx = order.indexOf(step.id);
+                  const status: "pending" | "active" | "complete" =
+                    stepIdx < currentIdx
+                      ? "complete"
+                      : stepIdx === currentIdx
+                        ? "active"
+                        : "pending";
+                  const Icon = step.icon;
+                  return (
+                    <li
+                      key={step.id}
+                      className={`flex items-start gap-3 rounded-lg p-3 transition-colors ${
+                        status === "active"
+                          ? "bg-primary/5 border border-primary/30"
+                          : "border border-transparent"
+                      }`}
+                    >
+                      <div
+                        className={`shrink-0 mt-0.5 w-7 h-7 rounded-full flex items-center justify-center ${
+                          status === "complete"
+                            ? "bg-primary/15 text-primary"
+                            : status === "active"
+                              ? "bg-primary text-primary-foreground shadow-[var(--shadow-glow-sm)]"
+                              : "bg-card/60 text-muted-foreground"
+                        }`}
+                      >
+                        {status === "complete" ? (
+                          <Check size={14} strokeWidth={3} />
+                        ) : status === "active" ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Icon size={14} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-sm font-medium ${
+                            status === "pending" ? "text-muted-foreground" : "text-foreground"
+                          }`}
+                        >
+                          {step.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground/80 mt-0.5">{step.hint}</p>
+                      </div>
+                      <span className="text-xs font-mono text-muted-foreground/60 mt-1">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
 
         {/* Error */}
         {error && !loading && (

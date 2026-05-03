@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   XCircle,
+  TerminalSquare,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";

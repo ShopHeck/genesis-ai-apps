@@ -16,6 +16,8 @@ import {
   Brain,
   Code2,
   Package,
+  FileText,
+  Eye,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";

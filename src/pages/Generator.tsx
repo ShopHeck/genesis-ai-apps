@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   XCircle,
+  TerminalSquare,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -53,6 +54,37 @@ const STAGES: { id: Exclude<Stage, "idle" | "error">; label: string; hint: strin
   { id: "done", label: "Ready for Xcode", hint: "Open in Xcode 16+, sign, and ship", icon: Check },
 ];
 
+type LogKind = "system" | "thought" | "action" | "success" | "error";
+type LogLine = { id: number; ts: number; kind: LogKind; text: string };
+
+const STAGE_SCRIPT: Record<Exclude<Stage, "idle" | "error" | "done">, { kind: LogKind; text: string }[]> = {
+  analyzing: [
+    { kind: "system", text: "$ apex build --target ios --xcode 16 --swift 6" },
+    { kind: "action", text: "[agent] booting planner · model=gemini-2.5-pro" },
+    { kind: "thought", text: "› parsing intent and extracting feature set…" },
+    { kind: "thought", text: "› choosing architecture: MV + @Observable + SwiftData" },
+    { kind: "thought", text: "› mapping screens → NavigationStack routes" },
+    { kind: "thought", text: "› selecting Apple frameworks (Charts, HealthKit?, WidgetKit?)" },
+    { kind: "action", text: "[plan] feature graph stabilized · entities resolved" },
+  ],
+  generating: [
+    { kind: "action", text: "[codegen] scaffolding Xcode project (XcodeGen)" },
+    { kind: "thought", text: "› writing App.swift entry point with @main" },
+    { kind: "thought", text: "› generating SwiftUI views and view models" },
+    { kind: "thought", text: "› defining @Model SwiftData schema" },
+    { kind: "thought", text: "› wiring NavigationStack + deep link routes" },
+    { kind: "thought", text: "› adding accessibility labels & Dynamic Type" },
+    { kind: "thought", text: "› adopting Swift 6 strict concurrency (Sendable, actors)" },
+    { kind: "thought", text: "› generating Assets.xcassets + AppIcon" },
+    { kind: "action", text: "[lint] passing SwiftLint · 0 warnings" },
+  ],
+  bundling: [
+    { kind: "action", text: "[bundler] compressing project tree…" },
+    { kind: "thought", text: "› verifying project.yml + Info.plist keys" },
+    { kind: "action", text: "[bundler] writing apex-build.zip" },
+  ],
+};
+
 export default function Generator() {
   const [prompt, setPrompt] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
@@ -60,9 +92,16 @@ export default function Generator() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [logs, setLogs] = useState<LogLine[]>([]);
   const startedAt = useRef<number | null>(null);
+  const logIdRef = useRef(0);
+  const terminalRef = useRef<HTMLDivElement | null>(null);
 
   const loading = stage === "analyzing" || stage === "generating" || stage === "bundling";
+
+  const pushLog = (kind: LogKind, text: string) => {
+    setLogs((prev) => [...prev, { id: ++logIdRef.current, ts: Date.now(), kind, text }]);
+  };
 
   // Tick elapsed seconds while loading
   useEffect(() => {
@@ -73,6 +112,33 @@ export default function Generator() {
     return () => clearInterval(id);
   }, [loading]);
 
+  // Stream scripted "agent thoughts" while loading. Each stage has a queue
+  // that drips out one line at a time so the terminal feels alive.
+  useEffect(() => {
+    if (stage !== "analyzing" && stage !== "generating" && stage !== "bundling") return;
+    const queue = [...STAGE_SCRIPT[stage]];
+    let cancelled = false;
+    const drip = () => {
+      if (cancelled || queue.length === 0) return;
+      const next = queue.shift()!;
+      pushLog(next.kind, next.text);
+      const delay = 350 + Math.random() * 650;
+      setTimeout(drip, delay);
+    };
+    const t = setTimeout(drip, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [stage]);
+
+  // Auto-scroll terminal to bottom on new log
+  useEffect(() => {
+    const el = terminalRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logs]);
+
+
   const handleGenerate = async () => {
     if (prompt.trim().length < 10) {
       toast.error("Describe your app in a bit more detail.");
@@ -82,14 +148,15 @@ export default function Generator() {
     setProject(null);
     setSelectedFile(null);
     setElapsed(0);
+    setLogs([]);
+    logIdRef.current = 0;
     startedAt.current = Date.now();
     setStage("analyzing");
+    pushLog("system", `> prompt received (${prompt.trim().length} chars)`);
 
-    // Auto-advance from "analyzing" to "generating" after a short delay so the
-    // user sees both phases even though they happen inside one network call.
     const analyzeTimer = setTimeout(() => {
       setStage((s) => (s === "analyzing" ? "generating" : s));
-    }, 1800);
+    }, 4200);
 
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("generate-ios-app", {
@@ -101,18 +168,20 @@ export default function Generator() {
       if (!data?.files?.length) throw new Error("Empty project returned.");
 
       setStage("bundling");
-      // Brief beat so the bundling step is visible
-      await new Promise((r) => setTimeout(r, 500));
+      pushLog("success", `[codegen] generated ${data.files.length} files for "${data.appName}"`);
+      await new Promise((r) => setTimeout(r, 900));
 
       setProject(data as Project);
       setSelectedFile(data.files[0].path);
       setStage("done");
+      pushLog("success", "[done] project ready · awaiting download");
       toast.success(`${data.appName} generated — ${data.files.length} files`);
     } catch (e) {
       clearTimeout(analyzeTimer);
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
       setStage("error");
+      pushLog("error", `[error] ${msg}`);
       toast.error(msg);
     }
   };
@@ -334,6 +403,58 @@ export default function Generator() {
                   );
                 })}
               </ol>
+
+              {/* Live agent terminal */}
+              <div className="mt-6 rounded-xl border border-border/60 bg-[hsl(228_20%_4%)] overflow-hidden shadow-[var(--shadow-card)]">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 bg-card/40">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-destructive/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
+                    <span className="ml-3 text-xs font-mono text-muted-foreground flex items-center gap-1.5">
+                      <TerminalSquare size={12} /> apex-agent — building
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-muted-foreground/60">
+                    {logs.length} lines
+                  </span>
+                </div>
+                <div
+                  ref={terminalRef}
+                  className="font-mono text-[12px] leading-relaxed p-4 h-64 overflow-auto"
+                >
+                  {logs.map((l) => {
+                    const color =
+                      l.kind === "system"
+                        ? "text-foreground"
+                        : l.kind === "thought"
+                          ? "text-muted-foreground"
+                          : l.kind === "action"
+                            ? "text-primary"
+                            : l.kind === "success"
+                              ? "text-emerald-400"
+                              : "text-destructive";
+                    const time = new Date(l.ts).toLocaleTimeString([], {
+                      hour12: false,
+                      minute: "2-digit",
+                      second: "2-digit",
+                    });
+                    return (
+                      <div key={l.id} className="flex gap-3">
+                        <span className="text-muted-foreground/40 shrink-0">{time}</span>
+                        <span className={`${color} whitespace-pre-wrap break-words`}>
+                          {l.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex gap-2 items-center mt-1 text-primary">
+                    <span>›</span>
+                    <span className="inline-block w-2 h-4 bg-primary/80 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+
             </motion.div>
           )}
         </AnimatePresence>

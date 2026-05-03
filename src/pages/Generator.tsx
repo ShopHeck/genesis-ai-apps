@@ -114,8 +114,14 @@ export default function Generator() {
     }
   };
 
+  const validation = project ? validateProject(project) : null;
+
   const handleDownload = async () => {
     if (!project) return;
+    if (validation && validation.errors.length > 0) {
+      toast.error("Cannot download: project has validation errors");
+      return;
+    }
     const zip = new JSZip();
     const root = zip.folder(project.appName)!;
     project.files.forEach((f) => root.file(f.path, f.content));
@@ -123,6 +129,7 @@ export default function Generator() {
     saveAs(blob, `${project.appName}.zip`);
     toast.success("Project downloaded");
   };
+
 
   const tree = project ? buildTree(project.files) : null;
   const currentFile = project?.files.find((f) => f.path === selectedFile);

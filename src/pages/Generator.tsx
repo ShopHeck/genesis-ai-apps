@@ -18,6 +18,9 @@ import {
   Package,
   FileText,
   Eye,
+  ShieldCheck,
+  ShieldAlert,
+  XCircle,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";

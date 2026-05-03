@@ -148,14 +148,15 @@ export default function Generator() {
     setProject(null);
     setSelectedFile(null);
     setElapsed(0);
+    setLogs([]);
+    logIdRef.current = 0;
     startedAt.current = Date.now();
     setStage("analyzing");
+    pushLog("system", `> prompt received (${prompt.trim().length} chars)`);
 
-    // Auto-advance from "analyzing" to "generating" after a short delay so the
-    // user sees both phases even though they happen inside one network call.
     const analyzeTimer = setTimeout(() => {
       setStage((s) => (s === "analyzing" ? "generating" : s));
-    }, 1800);
+    }, 4200);
 
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("generate-ios-app", {
@@ -167,18 +168,20 @@ export default function Generator() {
       if (!data?.files?.length) throw new Error("Empty project returned.");
 
       setStage("bundling");
-      // Brief beat so the bundling step is visible
-      await new Promise((r) => setTimeout(r, 500));
+      pushLog("success", `[codegen] generated ${data.files.length} files for "${data.appName}"`);
+      await new Promise((r) => setTimeout(r, 900));
 
       setProject(data as Project);
       setSelectedFile(data.files[0].path);
       setStage("done");
+      pushLog("success", "[done] project ready · awaiting download");
       toast.success(`${data.appName} generated — ${data.files.length} files`);
     } catch (e) {
       clearTimeout(analyzeTimer);
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
       setStage("error");
+      pushLog("error", `[error] ${msg}`);
       toast.error(msg);
     }
   };

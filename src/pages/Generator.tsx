@@ -370,6 +370,9 @@ export default function Generator() {
                 </Button>
               </div>
 
+              {/* ZIP Preview summary */}
+              <ZipPreviewCard project={project} onSelect={setSelectedFile} />
+
               {/* Code viewer */}
               <div className="grid lg:grid-cols-[280px_1fr] gap-4 min-h-[500px]">
                 {/* File tree */}

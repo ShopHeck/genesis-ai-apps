@@ -372,12 +372,16 @@ export default function Generator() {
                 <Button
                   onClick={handleDownload}
                   size="lg"
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)]"
+                  disabled={!!validation && validation.errors.length > 0}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)] disabled:opacity-50"
                 >
                   <Download size={16} />
                   Download .zip
                 </Button>
               </div>
+
+              {/* Pre-download validation */}
+              {validation && <ValidationPanel result={validation} onSelect={setSelectedFile} />}
 
               {/* ZIP Preview summary */}
               <ZipPreviewCard project={project} onSelect={setSelectedFile} />

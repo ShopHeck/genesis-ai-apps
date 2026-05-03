@@ -403,6 +403,58 @@ export default function Generator() {
                   );
                 })}
               </ol>
+
+              {/* Live agent terminal */}
+              <div className="mt-6 rounded-xl border border-border/60 bg-[hsl(228_20%_4%)] overflow-hidden shadow-[var(--shadow-card)]">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 bg-card/40">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-destructive/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
+                    <span className="ml-3 text-xs font-mono text-muted-foreground flex items-center gap-1.5">
+                      <TerminalSquare size={12} /> apex-agent — building
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-muted-foreground/60">
+                    {logs.length} lines
+                  </span>
+                </div>
+                <div
+                  ref={terminalRef}
+                  className="font-mono text-[12px] leading-relaxed p-4 h-64 overflow-auto"
+                >
+                  {logs.map((l) => {
+                    const color =
+                      l.kind === "system"
+                        ? "text-foreground"
+                        : l.kind === "thought"
+                          ? "text-muted-foreground"
+                          : l.kind === "action"
+                            ? "text-primary"
+                            : l.kind === "success"
+                              ? "text-emerald-400"
+                              : "text-destructive";
+                    const time = new Date(l.ts).toLocaleTimeString([], {
+                      hour12: false,
+                      minute: "2-digit",
+                      second: "2-digit",
+                    });
+                    return (
+                      <div key={l.id} className="flex gap-3">
+                        <span className="text-muted-foreground/40 shrink-0">{time}</span>
+                        <span className={`${color} whitespace-pre-wrap break-words`}>
+                          {l.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex gap-2 items-center mt-1 text-primary">
+                    <span>›</span>
+                    <span className="inline-block w-2 h-4 bg-primary/80 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+
             </motion.div>
           )}
         </AnimatePresence>

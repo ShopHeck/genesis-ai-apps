@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { ArrowRight, Play, Sparkles, Zap, Shield } from "lucide-react";
+import { ArrowRight, Play, Sparkles, Zap, Shield, CreditCard, Timer, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import heroMockup from "@/assets/hero-mockup.jpg";
 

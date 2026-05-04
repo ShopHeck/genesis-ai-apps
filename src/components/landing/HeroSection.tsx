@@ -79,10 +79,12 @@ const HeroSection = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 0.5 }}
-              className="mt-8 flex items-center gap-6 justify-center lg:justify-start text-sm text-muted-foreground"
+              className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 justify-center lg:justify-start text-sm text-muted-foreground"
             >
-              <span className="flex items-center gap-1.5"><Zap size={14} className="text-primary" /> No code needed</span>
+              <span className="flex items-center gap-1.5"><CreditCard size={14} className="text-primary" /> No credit card required</span>
+              <span className="flex items-center gap-1.5"><Timer size={14} className="text-primary" /> Prototype in under 5 min</span>
               <span className="flex items-center gap-1.5"><Shield size={14} className="text-primary" /> You own the code</span>
+              <span className="flex items-center gap-1.5"><Lock size={14} className="text-primary" /> SOC 2-ready infra</span>
             </motion.div>
           </div>
 

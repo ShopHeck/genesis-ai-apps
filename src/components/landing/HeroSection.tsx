@@ -63,12 +63,15 @@ const HeroSection = () => {
                 </Link>
               </Button>
               <Button
+                asChild
                 size="lg"
                 variant="outline"
                 className="border-border/60 text-foreground hover:bg-muted/50 text-base px-8 group"
               >
-                <Play size={16} className="mr-2" />
-                Watch Demo
+                <a href="#how-it-works">
+                  <Play size={16} className="mr-2" />
+                  Watch Demo
+                </a>
               </Button>
             </motion.div>
 

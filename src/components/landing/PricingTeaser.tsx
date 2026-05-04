@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -40,11 +41,14 @@ const PricingTeaser = () => {
             </ul>
 
             <Button
+              asChild
               size="lg"
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-sm)] group"
             >
-              Get Started
-              <ArrowRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+              <Link to="/generator">
+                Get Started
+                <ArrowRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
+              </Link>
             </Button>
           </div>
         </motion.div>

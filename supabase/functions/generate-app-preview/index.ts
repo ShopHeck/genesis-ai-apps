@@ -40,27 +40,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const tools = [
-      {
-        type: "function",
-        function: {
-          name: "emit_preview",
-          description: "Emit the interactive HTML preview of the app.",
-          parameters: {
-            type: "object",
-            properties: {
-              html: {
-                type: "string",
-                description: "The complete single-file HTML document for the interactive preview.",
-              },
-            },
-            required: ["html"],
-            additionalProperties: false,
-          },
-        },
-      },
-    ];
-
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -68,16 +47,15 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-pro",
+        max_tokens: 32000,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: `Build an interactive HTML preview for this iOS app concept.\n\nApp name: ${appName ?? "(unnamed)"}\nSummary: ${summary ?? "(none)"}\n\nOriginal idea:\n"""\n${prompt}\n"""\n\nMake it feel like a real native iOS app — multiple screens, tab bar where appropriate, working buttons, realistic sample data. Single 390x844 viewport.`,
+            content: `Build an interactive HTML preview for this iOS app concept.\n\nApp name: ${appName ?? "(unnamed)"}\nSummary: ${summary ?? "(none)"}\n\nOriginal idea:\n"""\n${prompt}\n"""\n\nMake it feel like a real native iOS app — multiple screens, tab bar where appropriate, working buttons, realistic sample data. Single 390x844 viewport.\n\nReturn ONLY the raw HTML document starting with <!DOCTYPE html>. No markdown fences, no commentary.`,
           },
         ],
-        tools,
-        tool_choice: { type: "function", function: { name: "emit_preview" } },
       }),
     });
 
@@ -103,28 +81,35 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await aiResp.json();
-    const toolCall = data?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
+    let html: string = data?.choices?.[0]?.message?.content ?? "";
+    if (!html) {
+      console.error("Empty AI content", JSON.stringify(data).slice(0, 500));
       return new Response(JSON.stringify({ error: "AI did not return a preview." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    let payload: { html: string };
-    try {
-      payload = JSON.parse(toolCall.function.arguments);
-    } catch (e) {
-      console.error("JSON parse error", e);
-      return new Response(JSON.stringify({ error: "Invalid preview JSON." }), {
+    // Strip markdown fences if present
+    html = html.trim();
+    const fenceMatch = html.match(/```(?:html)?\s*([\s\S]*?)```/i);
+    if (fenceMatch) html = fenceMatch[1].trim();
+
+    // Extract from <!DOCTYPE if extra text leaks in
+    const doctypeIdx = html.toLowerCase().indexOf("<!doctype");
+    if (doctypeIdx > 0) html = html.slice(doctypeIdx);
+
+    if (!html.toLowerCase().includes("<html")) {
+      return new Response(JSON.stringify({ error: "Preview content malformed." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify(payload), {
+    return new Response(JSON.stringify({ html }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (e) {
     console.error("generate-app-preview error", e);
     return new Response(

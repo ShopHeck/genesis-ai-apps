@@ -212,6 +212,39 @@ export default function Generator() {
     toast.success("Project downloaded");
   };
 
+  const generatePreview = async () => {
+    if (!project) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("generate-app-preview", {
+        body: {
+          prompt: lastPromptUsed || prompt,
+          appName: project.appName,
+          summary: project.summary,
+        },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      if (data?.error) throw new Error(data.error);
+      if (!data?.html) throw new Error("Empty preview returned");
+      setPreviewHtml(data.html);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Preview failed";
+      setPreviewError(msg);
+      toast.error(msg);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Auto-generate preview once project is ready
+  useEffect(() => {
+    if (project && !previewHtml && !previewLoading && !previewError) {
+      generatePreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
+
 
   const tree = project ? buildTree(project.files) : null;
   const currentFile = project?.files.find((f) => f.path === selectedFile);

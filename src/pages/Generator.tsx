@@ -22,6 +22,9 @@ import {
   ShieldAlert,
   XCircle,
   TerminalSquare,
+  Smartphone,
+  RefreshCw,
+  PlayCircle,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";

@@ -1093,3 +1093,117 @@ function ValidationPanel({
   );
 }
 
+// ─── Interactive app preview ──────────────────────────────────────────────
+function AppPreview({
+  html,
+  loading,
+  error,
+  onRegenerate,
+  appName,
+}: {
+  html: string | null;
+  loading: boolean;
+  error: string | null;
+  onRegenerate: () => void;
+  appName: string;
+}) {
+  return (
+    <div className="glass-panel p-6">
+      <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-primary font-medium">
+            <Smartphone size={12} /> Interactive Preview
+          </div>
+          <h3 className="font-display text-lg font-semibold mt-1">
+            Try {appName} in your browser
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            A web-based interactive mockup of your iOS app — tap around to feel the flows
+            before opening Xcode. Not the real Swift app, but a faithful UI preview.
+          </p>
+        </div>
+        <Button
+          onClick={onRegenerate}
+          disabled={loading}
+          variant="outline"
+          size="sm"
+          className="border-border/60"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="animate-spin" size={14} />
+              Generating…
+            </>
+          ) : (
+            <>
+              <RefreshCw size={14} />
+              {html ? "Regenerate" : "Generate preview"}
+            </>
+          )}
+        </Button>
+      </div>
+
+      <div className="flex justify-center">
+        <div className="relative" style={{ width: 320, height: 692 }}>
+          <div
+            className="absolute inset-0 rounded-[44px] p-[10px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+            style={{
+              background:
+                "linear-gradient(145deg, hsl(var(--border)) 0%, hsl(var(--card)) 100%)",
+            }}
+          >
+            <div className="relative w-full h-full rounded-[36px] overflow-hidden bg-black">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-6 bg-black rounded-full z-10 pointer-events-none" />
+
+              {loading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-[hsl(228_20%_4%)]">
+                  <Loader2 className="animate-spin text-primary" size={28} />
+                  <p className="text-xs font-mono">building interactive preview…</p>
+                  <p className="text-[10px] text-muted-foreground/60 max-w-[200px] text-center">
+                    Rendering your app's screens, navigation, and sample data
+                  </p>
+                </div>
+              )}
+
+              {!loading && error && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-[hsl(228_20%_4%)]">
+                  <AlertTriangle className="text-destructive" size={24} />
+                  <p className="text-xs text-foreground font-medium">Preview failed</p>
+                  <p className="text-[10px] text-muted-foreground">{error}</p>
+                  <Button onClick={onRegenerate} size="sm" variant="outline" className="mt-2">
+                    <RefreshCw size={12} /> Retry
+                  </Button>
+                </div>
+              )}
+
+              {!loading && !error && !html && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-[hsl(228_20%_4%)]">
+                  <PlayCircle className="text-primary" size={32} />
+                  <p className="text-xs text-foreground font-medium">Tap to preview</p>
+                  <Button onClick={onRegenerate} size="sm" className="mt-2">
+                    <Smartphone size={12} /> Generate preview
+                  </Button>
+                </div>
+              )}
+
+              {!loading && html && (
+                <iframe
+                  title={`${appName} preview`}
+                  srcDoc={html}
+                  sandbox="allow-scripts allow-forms"
+                  className="w-full h-full border-0 bg-black"
+                  style={{ colorScheme: "dark" }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/60 text-center mt-4">
+        Preview runs in a sandboxed iframe · iPhone 15 viewport, scaled to fit
+      </p>
+    </div>
+  );
+}
+

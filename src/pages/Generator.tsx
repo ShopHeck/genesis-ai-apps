@@ -156,8 +156,11 @@ export default function Generator() {
     setSelectedFile(null);
     setElapsed(0);
     setLogs([]);
+    setPreviewHtml(null);
+    setPreviewError(null);
     logIdRef.current = 0;
     startedAt.current = Date.now();
+    setLastPromptUsed(prompt);
     setStage("analyzing");
     pushLog("system", `> prompt received (${prompt.trim().length} chars)`);
 

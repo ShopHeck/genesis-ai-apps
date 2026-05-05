@@ -96,6 +96,10 @@ export default function Generator() {
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [lastPromptUsed, setLastPromptUsed] = useState<string>("");
   const startedAt = useRef<number | null>(null);
   const logIdRef = useRef(0);
   const terminalRef = useRef<HTMLDivElement | null>(null);

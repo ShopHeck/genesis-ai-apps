@@ -547,6 +547,15 @@ export default function Generator() {
                 </Button>
               </div>
 
+              {/* Interactive app preview */}
+              <AppPreview
+                html={previewHtml}
+                loading={previewLoading}
+                error={previewError}
+                onRegenerate={generatePreview}
+                appName={project.appName}
+              />
+
               {/* Pre-download validation */}
               {validation && <ValidationPanel result={validation} onSelect={setSelectedFile} />}
 

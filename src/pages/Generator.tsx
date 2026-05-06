@@ -41,11 +41,108 @@ type Project = {
   files: GeneratedFile[];
 };
 
-const EXAMPLE_PROMPTS = [
-  "A minimalist habit tracker with streaks, daily reminders, and a clean SwiftUI charts dashboard.",
-  "A focus timer app with Pomodoro sessions, ambient soundscapes, and Live Activities.",
-  "A personal journal with mood tracking, on-device AI summaries, and Face ID lock.",
-  "A workout logger with custom routines, rest timers, and SwiftData persistence.",
+type PromptTemplate = { label: string; category: string; prompt: string };
+
+const EXAMPLE_PROMPTS: PromptTemplate[] = [
+  // Wellness & lifestyle
+  {
+    category: "Wellness",
+    label: "Lunar mood journal",
+    prompt:
+      "A nocturnal mood journal that pairs each entry with the current moon phase and a generative ambient color palette. Includes Face ID lock, on-device sentiment trends in Swift Charts, a 'constellation map' visualizing emotional patterns over months, and a Lock Screen widget showing tonight's moon.",
+  },
+  {
+    category: "Wellness",
+    label: "Breath-led focus",
+    prompt:
+      "A focus timer that syncs Pomodoro intervals to guided breathing patterns (box, 4-7-8, coherent). Live Activities show breath cadence on the Dynamic Island, ambient soundscapes loop via AVAudioEngine, and finished sessions mint a collectible 'focus stone' with procedural SwiftUI artwork.",
+  },
+  // Productivity (unusual takes)
+  {
+    category: "Productivity",
+    label: "Time garden",
+    prompt:
+      "A task manager where every completed task grows a plant in a personal SwiftUI garden. Plants thrive on consistency, wilt on procrastination, and seasons shift with your actual local weather via WeatherKit. Includes WidgetKit garden snapshot and App Intents for Siri ('plant a seed for…').",
+  },
+  {
+    category: "Productivity",
+    label: "Intention compass",
+    prompt:
+      "A weekly review app shaped like a compass. You set 4 cardinal intentions; the needle visualizes alignment based on how you spent your time (manual logs + Screen Time). Sunday review surfaces an AI-style narrative summary built from your own notes.",
+  },
+  // Creative & playful
+  {
+    category: "Creative",
+    label: "Pocket synth",
+    prompt:
+      "A tactile generative synth playground using AVAudioEngine and SwiftUI Canvas. Drag glowing nodes to wire oscillators, filters, and delays. Save patches to SwiftData, share as audio via ShareLink, and a Live Activity shows the currently playing patch waveform.",
+  },
+  {
+    category: "Creative",
+    label: "Color story",
+    prompt:
+      "A camera-first app that extracts 5-color palettes from photos using on-device Vision, then auto-generates a daily 'color story' collage with typography. Save palettes, export as PNG, and a widget shows today's dominant hue.",
+  },
+  // Outdoors / location
+  {
+    category: "Outdoors",
+    label: "Quiet places",
+    prompt:
+      "A discovery app for the quietest spots near you. Uses MapKit, CoreLocation, and crowd-sourced sound-level reports. Shows a noise heatmap, lets users check in with a 1-tap quiet rating, and offers a 'walk me somewhere peaceful' route suggestion.",
+  },
+  {
+    category: "Outdoors",
+    label: "Sky watcher",
+    prompt:
+      "An augmented sky companion: tonight's planets, ISS passes, and meteor showers for the user's location. AR view via RealityKit overlays constellations on the live camera. Includes a Live Activity countdown to the next celestial event and Lock Screen widget.",
+  },
+  // Social & communication (small, intimate)
+  {
+    category: "Social",
+    label: "Two-person notebook",
+    prompt:
+      "A private shared notebook for exactly two people via CloudKit. Pages can hold text, sketches (PencilKit), photos, and audio notes. A 'pulse' indicator shows when the other person is reading. Includes Lock Screen widget with the latest entry preview.",
+  },
+  {
+    category: "Social",
+    label: "Slow letters",
+    prompt:
+      "An anti-instant messenger: messages between friends arrive on a delay you choose (1 hour to 7 days), encouraging thoughtful long-form notes. Beautiful envelope animations, wax-seal stickers, and a mailbox view that fills throughout the week.",
+  },
+  // Finance / utility (unexpected angle)
+  {
+    category: "Finance",
+    label: "Subscription forest",
+    prompt:
+      "A subscription tracker visualized as a forest — each subscription is a tree sized by its monthly cost. Cancel one and watch the canopy thin. Includes renewal Live Activities, App Intents to log a new subscription via Siri, and yearly 'forest report'.",
+  },
+  // Learning
+  {
+    category: "Learning",
+    label: "Vocabulary garden",
+    prompt:
+      "A spaced-repetition vocabulary app where each word becomes a flower in a personal garden. Uses on-device AI for example sentences, supports any language pair, and includes a daily 5-minute review widget plus AppShortcut to log a word from anywhere.",
+  },
+  // Health (creative)
+  {
+    category: "Health",
+    label: "Sleep weather",
+    prompt:
+      "A sleep companion that turns last night's HealthKit sleep data into a 'weather forecast' for your day (sunny, foggy, stormy). Includes a Lock Screen widget with today's forecast, a sleep ritual builder, and gentle haptic wind-down sessions.",
+  },
+  // Quirky utilities
+  {
+    category: "Utility",
+    label: "Pocket museum",
+    prompt:
+      "A personal museum app where users curate everyday objects via the camera (coins, leaves, receipts). Each object gets an AI-generated wall label, organized into themed exhibitions. Browse as a 3D gallery using RealityKit.",
+  },
+  {
+    category: "Utility",
+    label: "Deja vu log",
+    prompt:
+      "A capture app for moments that feel familiar — voice memo + location + emotion tag. SwiftData powers a timeline; Vision and on-device similarity surface 'echoes' between entries months apart, revealing personal patterns.",
+  },
 ];
 
 type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";

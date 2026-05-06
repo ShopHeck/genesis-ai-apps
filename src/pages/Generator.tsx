@@ -41,105 +41,180 @@ type Project = {
   files: GeneratedFile[];
 };
 
-type PromptTemplate = { label: string; category: string; prompt: string };
+type PromptTemplate = {
+  label: string;
+  category: string;
+  tagline: string;
+  signature: string;
+  screens: string[];
+  accent: string; // tailwind hex or hsl-friendly color
+  emoji: string;
+  prompt: string;
+};
 
 const EXAMPLE_PROMPTS: PromptTemplate[] = [
-  // Wellness & lifestyle
   {
     category: "Wellness",
     label: "Lunar mood journal",
+    tagline: "Nocturnal journaling tied to the moon.",
+    signature: "Constellation map of your emotions over months.",
+    screens: ["Tonight", "New entry", "Constellation", "Lock widget"],
+    accent: "#7C8DFF",
+    emoji: "🌙",
     prompt:
       "A nocturnal mood journal that pairs each entry with the current moon phase and a generative ambient color palette. Includes Face ID lock, on-device sentiment trends in Swift Charts, a 'constellation map' visualizing emotional patterns over months, and a Lock Screen widget showing tonight's moon.",
   },
   {
     category: "Wellness",
     label: "Breath-led focus",
+    tagline: "Pomodoro timed to your breath.",
+    signature: "Live Activity breath cadence + procedural focus stones.",
+    screens: ["Session", "Breath rings", "Stones", "History"],
+    accent: "#5EE2C7",
+    emoji: "🫁",
     prompt:
       "A focus timer that syncs Pomodoro intervals to guided breathing patterns (box, 4-7-8, coherent). Live Activities show breath cadence on the Dynamic Island, ambient soundscapes loop via AVAudioEngine, and finished sessions mint a collectible 'focus stone' with procedural SwiftUI artwork.",
   },
-  // Productivity (unusual takes)
   {
     category: "Productivity",
     label: "Time garden",
+    tagline: "Tasks grow plants in a living garden.",
+    signature: "Garden seasons shift with real local weather.",
+    screens: ["Garden", "Today's tasks", "Plant detail", "Widget"],
+    accent: "#7AC74F",
+    emoji: "🌱",
     prompt:
       "A task manager where every completed task grows a plant in a personal SwiftUI garden. Plants thrive on consistency, wilt on procrastination, and seasons shift with your actual local weather via WeatherKit. Includes WidgetKit garden snapshot and App Intents for Siri ('plant a seed for…').",
   },
   {
     category: "Productivity",
     label: "Intention compass",
+    tagline: "A weekly compass of your intentions.",
+    signature: "Needle visualizes alignment with your 4 intentions.",
+    screens: ["Compass", "Set intentions", "Daily log", "Sunday review"],
+    accent: "#F2B441",
+    emoji: "🧭",
     prompt:
       "A weekly review app shaped like a compass. You set 4 cardinal intentions; the needle visualizes alignment based on how you spent your time (manual logs + Screen Time). Sunday review surfaces an AI-style narrative summary built from your own notes.",
   },
-  // Creative & playful
   {
     category: "Creative",
     label: "Pocket synth",
+    tagline: "Drag-and-wire generative synth playground.",
+    signature: "Live Activity shows the playing patch's waveform.",
+    screens: ["Patch board", "Library", "Recorder", "Share"],
+    accent: "#FF6BB5",
+    emoji: "🎛",
     prompt:
       "A tactile generative synth playground using AVAudioEngine and SwiftUI Canvas. Drag glowing nodes to wire oscillators, filters, and delays. Save patches to SwiftData, share as audio via ShareLink, and a Live Activity shows the currently playing patch waveform.",
   },
   {
     category: "Creative",
     label: "Color story",
+    tagline: "Daily palette stories from your photos.",
+    signature: "On-device Vision palette extraction → typographic collage.",
+    screens: ["Today", "Capture", "Palette detail", "Archive"],
+    accent: "#E96B4A",
+    emoji: "🎨",
     prompt:
       "A camera-first app that extracts 5-color palettes from photos using on-device Vision, then auto-generates a daily 'color story' collage with typography. Save palettes, export as PNG, and a widget shows today's dominant hue.",
   },
-  // Outdoors / location
   {
     category: "Outdoors",
     label: "Quiet places",
+    tagline: "Find the quietest spots near you.",
+    signature: "Crowd-sourced noise heatmap on MapKit.",
+    screens: ["Map", "Place detail", "Check-in", "Walk me there"],
+    accent: "#4FB6E8",
+    emoji: "🤫",
     prompt:
       "A discovery app for the quietest spots near you. Uses MapKit, CoreLocation, and crowd-sourced sound-level reports. Shows a noise heatmap, lets users check in with a 1-tap quiet rating, and offers a 'walk me somewhere peaceful' route suggestion.",
   },
   {
     category: "Outdoors",
     label: "Sky watcher",
+    tagline: "Tonight's sky in AR over your camera.",
+    signature: "RealityKit constellations + Live Activity countdown.",
+    screens: ["Tonight", "AR sky", "Events", "Widget"],
+    accent: "#8E7BFF",
+    emoji: "🌌",
     prompt:
       "An augmented sky companion: tonight's planets, ISS passes, and meteor showers for the user's location. AR view via RealityKit overlays constellations on the live camera. Includes a Live Activity countdown to the next celestial event and Lock Screen widget.",
   },
-  // Social & communication (small, intimate)
   {
     category: "Social",
     label: "Two-person notebook",
+    tagline: "A private shared notebook for two.",
+    signature: "Live 'pulse' when the other person is reading.",
+    screens: ["Pages", "New page", "Sketch", "Widget"],
+    accent: "#FF8FA3",
+    emoji: "📓",
     prompt:
       "A private shared notebook for exactly two people via CloudKit. Pages can hold text, sketches (PencilKit), photos, and audio notes. A 'pulse' indicator shows when the other person is reading. Includes Lock Screen widget with the latest entry preview.",
   },
   {
     category: "Social",
     label: "Slow letters",
+    tagline: "Anti-instant messenger with delayed delivery.",
+    signature: "Wax-seal stickers + filling weekly mailbox.",
+    screens: ["Mailbox", "Compose", "Letter detail", "Friends"],
+    accent: "#C9A66B",
+    emoji: "✉️",
     prompt:
       "An anti-instant messenger: messages between friends arrive on a delay you choose (1 hour to 7 days), encouraging thoughtful long-form notes. Beautiful envelope animations, wax-seal stickers, and a mailbox view that fills throughout the week.",
   },
-  // Finance / utility (unexpected angle)
   {
     category: "Finance",
     label: "Subscription forest",
+    tagline: "Subscriptions visualized as a forest.",
+    signature: "Cancel one and watch the canopy thin.",
+    screens: ["Forest", "Tree detail", "Add subscription", "Yearly report"],
+    accent: "#3FAE7B",
+    emoji: "🌲",
     prompt:
       "A subscription tracker visualized as a forest — each subscription is a tree sized by its monthly cost. Cancel one and watch the canopy thin. Includes renewal Live Activities, App Intents to log a new subscription via Siri, and yearly 'forest report'.",
   },
-  // Learning
   {
     category: "Learning",
     label: "Vocabulary garden",
+    tagline: "Spaced-repetition words bloom as flowers.",
+    signature: "On-device AI example sentences, any language pair.",
+    screens: ["Garden", "Review", "Word detail", "Widget"],
+    accent: "#E27DBB",
+    emoji: "🌸",
     prompt:
       "A spaced-repetition vocabulary app where each word becomes a flower in a personal garden. Uses on-device AI for example sentences, supports any language pair, and includes a daily 5-minute review widget plus AppShortcut to log a word from anywhere.",
   },
-  // Health (creative)
   {
     category: "Health",
     label: "Sleep weather",
+    tagline: "Last night's sleep as today's forecast.",
+    signature: "HealthKit → sunny / foggy / stormy day forecast.",
+    screens: ["Forecast", "Wind-down", "Ritual builder", "Widget"],
+    accent: "#6FB7FF",
+    emoji: "⛅",
     prompt:
       "A sleep companion that turns last night's HealthKit sleep data into a 'weather forecast' for your day (sunny, foggy, stormy). Includes a Lock Screen widget with today's forecast, a sleep ritual builder, and gentle haptic wind-down sessions.",
   },
-  // Quirky utilities
   {
     category: "Utility",
     label: "Pocket museum",
+    tagline: "Curate everyday objects as exhibitions.",
+    signature: "AI wall labels + 3D gallery via RealityKit.",
+    screens: ["Exhibitions", "Capture", "Object detail", "3D gallery"],
+    accent: "#B58BFF",
+    emoji: "🏛",
     prompt:
       "A personal museum app where users curate everyday objects via the camera (coins, leaves, receipts). Each object gets an AI-generated wall label, organized into themed exhibitions. Browse as a 3D gallery using RealityKit.",
   },
   {
     category: "Utility",
     label: "Deja vu log",
+    tagline: "Capture moments that feel familiar.",
+    signature: "On-device similarity surfaces 'echoes' over time.",
+    screens: ["Timeline", "Capture", "Echoes", "Entry detail"],
+    accent: "#FFB45A",
+    emoji: "🔁",
     prompt:
       "A capture app for moments that feel familiar — voice memo + location + emotion tag. SwiftData powers a timeline; Vision and on-device similarity surface 'echoes' between entries months apart, revealing personal patterns.",
   },

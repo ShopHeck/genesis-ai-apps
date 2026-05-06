@@ -478,25 +478,90 @@ export default function Generator() {
             disabled={loading}
           />
 
-          <div className="mt-4">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
-              Try an out-of-the-box idea
-            </p>
-            <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
-              {EXAMPLE_PROMPTS.map((ex) => (
-                <button
-                  key={ex.label}
-                  onClick={() => setPrompt(ex.prompt)}
-                  disabled={loading}
-                  title={ex.prompt}
-                  className="group text-xs px-3 py-1.5 rounded-full border border-border/60 bg-card/40 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  <span className="text-[10px] uppercase tracking-wider text-primary/70 group-hover:text-primary">
-                    {ex.category}
-                  </span>
-                  <span>{ex.label}</span>
-                </button>
-              ))}
+          <div className="mt-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70">
+                Out-of-the-box idea templates
+              </p>
+              <p className="text-[11px] text-muted-foreground/60">
+                {EXAMPLE_PROMPTS.length} curated · click to load
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto pr-1 -mr-1">
+              {EXAMPLE_PROMPTS.map((ex) => {
+                const selected = prompt === ex.prompt;
+                return (
+                  <button
+                    key={ex.label}
+                    type="button"
+                    onClick={() => setPrompt(ex.prompt)}
+                    disabled={loading}
+                    title={ex.prompt}
+                    className={`group relative text-left rounded-xl border p-3.5 bg-card/40 hover:bg-card/70 transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden ${
+                      selected
+                        ? "border-primary/60 shadow-[var(--shadow-glow-sm)]"
+                        : "border-border/60 hover:border-primary/40"
+                    }`}
+                    style={{
+                      // subtle accent glow per template
+                      backgroundImage: `radial-gradient(120% 80% at 100% 0%, ${ex.accent}22, transparent 60%)`,
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5 mb-2">
+                      <div
+                        className="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-lg ring-1 ring-inset ring-white/10"
+                        style={{
+                          background: `linear-gradient(135deg, ${ex.accent}55, ${ex.accent}1a)`,
+                        }}
+                        aria-hidden
+                      >
+                        {ex.emoji}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="text-[10px] uppercase tracking-wider font-medium"
+                          style={{ color: ex.accent }}
+                        >
+                          {ex.category}
+                        </p>
+                        <p className="text-sm font-semibold text-foreground leading-tight truncate">
+                          {ex.label}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground leading-snug line-clamp-2 mb-2.5">
+                      {ex.tagline}
+                    </p>
+
+                    <div className="flex items-start gap-1.5 text-[11px] text-foreground/80 mb-2.5">
+                      <Sparkles
+                        size={11}
+                        className="mt-0.5 shrink-0"
+                        style={{ color: ex.accent }}
+                      />
+                      <span className="line-clamp-2 leading-snug">{ex.signature}</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {ex.screens.map((s) => (
+                        <span
+                          key={s}
+                          className="text-[10px] px-1.5 py-0.5 rounded-md bg-background/60 border border-border/50 text-muted-foreground"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+
+                    {selected && (
+                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

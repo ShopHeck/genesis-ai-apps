@@ -403,17 +403,26 @@ export default function Generator() {
             disabled={loading}
           />
 
-          <div className="flex flex-wrap gap-2 mt-3">
-            {EXAMPLE_PROMPTS.map((ex) => (
-              <button
-                key={ex}
-                onClick={() => setPrompt(ex)}
-                disabled={loading}
-                className="text-xs px-3 py-1.5 rounded-full border border-border/60 bg-card/40 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
-              >
-                {ex.split(" ").slice(0, 5).join(" ")}…
-              </button>
-            ))}
+          <div className="mt-4">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+              Try an out-of-the-box idea
+            </p>
+            <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto pr-1">
+              {EXAMPLE_PROMPTS.map((ex) => (
+                <button
+                  key={ex.label}
+                  onClick={() => setPrompt(ex.prompt)}
+                  disabled={loading}
+                  title={ex.prompt}
+                  className="group text-xs px-3 py-1.5 rounded-full border border-border/60 bg-card/40 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <span className="text-[10px] uppercase tracking-wider text-primary/70 group-hover:text-primary">
+                    {ex.category}
+                  </span>
+                  <span>{ex.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center justify-between mt-6 gap-4 flex-wrap">

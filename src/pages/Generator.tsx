@@ -218,6 +218,171 @@ const EXAMPLE_PROMPTS: PromptTemplate[] = [
     prompt:
       "A capture app for moments that feel familiar — voice memo + location + emotion tag. SwiftData powers a timeline; Vision and on-device similarity surface 'echoes' between entries months apart, revealing personal patterns.",
   },
+  {
+    category: "Finance",
+    label: "Receipt vault",
+    tagline: "Snap receipts, auto-categorized & tax-ready.",
+    signature: "On-device OCR + warranty expiry alerts.",
+    screens: ["Inbox", "Capture", "Receipt detail", "Tax export"],
+    accent: "#34C759",
+    emoji: "🧾",
+    prompt:
+      "A receipt manager that uses VisionKit DataScannerViewController to capture receipts, extracts merchant/total/date with on-device OCR, auto-categorizes via on-device ML, tracks warranty expiry with local notifications, and exports a tax-ready CSV/PDF for any date range.",
+  },
+  {
+    category: "Finance",
+    label: "Split smart",
+    tagline: "Group expenses settled in one tap.",
+    signature: "Live Activity for active trips + iMessage app.",
+    screens: ["Groups", "Add expense", "Balances", "Settle up"],
+    accent: "#0A84FF",
+    emoji: "💸",
+    prompt:
+      "A bill-splitting app for trips and roommates with multi-currency support, receipt-photo attachments, smart settle-up suggestions that minimize transactions, a Live Activity for active trips, and an iMessage extension to add expenses without leaving chat.",
+  },
+  {
+    category: "Productivity",
+    label: "Meeting clarity",
+    tagline: "Record, transcribe, and summarize meetings.",
+    signature: "On-device Whisper + action-item extraction.",
+    screens: ["Library", "Recording", "Transcript", "Summary"],
+    accent: "#FF9500",
+    emoji: "🎙",
+    prompt:
+      "A meeting recorder with on-device transcription via WhisperKit, AI-style summary and action-item extraction, speaker diarization, searchable transcript timeline, calendar integration via EventKit, and a Live Activity that shows active recording duration.",
+  },
+  {
+    category: "Productivity",
+    label: "Inbox zero",
+    tagline: "Snooze, batch, and reply with templates.",
+    signature: "Swipeable triage + Focus filter integration.",
+    screens: ["Triage", "Snoozed", "Templates", "Today"],
+    accent: "#5856D6",
+    emoji: "📥",
+    prompt:
+      "A focused email triage app on top of MailKit. Tinder-style swipe to archive/snooze/reply, smart template library with variables, scheduled send, Focus mode integration, and a daily 'inbox zero' streak widget.",
+  },
+  {
+    category: "Health",
+    label: "Hydration habit",
+    tagline: "Smart water tracking that learns you.",
+    signature: "Adaptive reminders from weather + activity.",
+    screens: ["Today", "Quick log", "Trends", "Widget"],
+    accent: "#32ADE6",
+    emoji: "💧",
+    prompt:
+      "A hydration tracker that adapts reminder timing based on WeatherKit temperature, HealthKit workouts, and your logging patterns. Quick-log via App Intents and Apple Watch complication, beautiful Swift Charts trends, and an interactive Lock Screen widget.",
+  },
+  {
+    category: "Health",
+    label: "Med minder",
+    tagline: "Medication tracking the family can trust.",
+    signature: "Shared caregiver view + refill predictions.",
+    screens: ["Schedule", "Take dose", "History", "Caregiver"],
+    accent: "#FF3B30",
+    emoji: "💊",
+    prompt:
+      "A medication reminder app with complex schedules (every other day, taper, PRN), shared caregiver visibility via CloudKit, refill predictions, drug-interaction warnings from a bundled dataset, Lock Screen widget showing next dose, and Apple Watch quick-take.",
+  },
+  {
+    category: "Health",
+    label: "Symptom diary",
+    tagline: "Track symptoms and spot triggers.",
+    signature: "Correlation engine ties symptoms to food/sleep.",
+    screens: ["Today", "Log symptom", "Insights", "Doctor export"],
+    accent: "#FF6482",
+    emoji: "🩺",
+    prompt:
+      "A symptom and trigger tracker for chronic conditions. Quick-log symptoms with severity and tags, correlate against HealthKit sleep/workouts and meal logs, surface likely triggers via on-device statistics, and export a clean PDF report for doctor visits.",
+  },
+  {
+    category: "Travel",
+    label: "Trip atlas",
+    tagline: "All your bookings, one beautiful itinerary.",
+    signature: "Auto-parse confirmation emails + offline maps.",
+    screens: ["Trips", "Day view", "Place detail", "Boarding"],
+    accent: "#5AC8FA",
+    emoji: "🧳",
+    prompt:
+      "An itinerary app that parses forwarded confirmation emails (flights, hotels, rentals) into a unified day-by-day timeline, caches offline MapKit tiles for the destination, shows Live Activities for upcoming flights with gate updates, and adds boarding passes to Wallet.",
+  },
+  {
+    category: "Travel",
+    label: "Phrase coach",
+    tagline: "Language phrases for your exact trip.",
+    signature: "Context-aware phrases + offline pronunciation.",
+    screens: ["Trip phrases", "Practice", "Camera translate", "Favorites"],
+    accent: "#AF52DE",
+    emoji: "🗣",
+    prompt:
+      "A travel phrasebook that generates phrases tailored to your trip context (restaurants, transit, emergencies), with offline TTS pronunciation, Vision-powered camera translation of menus and signs, and SharePlay for practicing with a friend.",
+  },
+  {
+    category: "Food",
+    label: "Pantry chef",
+    tagline: "Recipes from what's in your kitchen.",
+    signature: "Barcode scan pantry + expiry-first recipes.",
+    screens: ["Pantry", "Recipes", "Cook mode", "Shopping list"],
+    accent: "#FF9F0A",
+    emoji: "🍳",
+    prompt:
+      "A pantry-first cooking app: scan barcodes with VisionKit to add items, track expiry dates, and surface recipes that prioritize ingredients about to expire. Hands-free cook mode with Apple Watch step advance, auto-generated shopping list, and Siri shortcuts.",
+  },
+  {
+    category: "Food",
+    label: "Macro mate",
+    tagline: "Nutrition tracking without the friction.",
+    signature: "Photo-based portion estimation + barcode scan.",
+    screens: ["Today", "Log meal", "Trends", "Goals"],
+    accent: "#30D158",
+    emoji: "🥗",
+    prompt:
+      "A nutrition tracker with photo-based portion estimation via Vision, barcode scanning, recurring meal templates, HealthKit two-way sync, Swift Charts macro trends, and an interactive widget for one-tap logging of frequent meals.",
+  },
+  {
+    category: "Fitness",
+    label: "Run companion",
+    tagline: "Adaptive coaching for your next race.",
+    signature: "Live Activity pace coach + audio cues.",
+    screens: ["Plan", "Active run", "Post-run", "Calendar"],
+    accent: "#FF2D55",
+    emoji: "🏃",
+    prompt:
+      "An adaptive run-training app: generates a plan toward a race goal, adjusts based on actual HealthKit performance, runs a Live Activity with pace/HR/coach cues during workouts, plays audio coaching via AVAudioEngine, and syncs to Apple Watch.",
+  },
+  {
+    category: "Smart Home",
+    label: "Home pulse",
+    tagline: "A calm dashboard for your smart home.",
+    signature: "Custom scenes + room-aware Lock Screen widgets.",
+    screens: ["Dashboard", "Room", "Scenes", "Automations"],
+    accent: "#64D2FF",
+    emoji: "🏠",
+    prompt:
+      "A HomeKit dashboard reimagined: at-a-glance room cards, custom scene builder with conditions, energy usage charts, room-aware Lock Screen widgets that change with your location, and Live Activities for active automations like 'arriving home'.",
+  },
+  {
+    category: "Learning",
+    label: "Read deeper",
+    tagline: "Save articles, surface what matters.",
+    signature: "AI highlights + spaced-repetition resurfacing.",
+    screens: ["Library", "Reader", "Highlights", "Resurface"],
+    accent: "#BF5AF2",
+    emoji: "📖",
+    prompt:
+      "A read-it-later app with a beautiful reader, on-device AI summary and key-quote extraction, highlight capture, spaced-repetition resurfacing of past highlights, Safari share extension, and a Lock Screen widget with today's resurfaced quote.",
+  },
+  {
+    category: "Career",
+    label: "Job radar",
+    tagline: "Track applications from apply to offer.",
+    signature: "Stage pipeline + interview prep timeline.",
+    screens: ["Pipeline", "Job detail", "Prep", "Insights"],
+    accent: "#A2845E",
+    emoji: "🎯",
+    prompt:
+      "A job-search CRM: kanban pipeline of applications, contact tracking per company, interview prep checklist with countdown Live Activity, salary negotiation notes, weekly insight report on funnel conversion, and a widget for next interview.",
+  },
 ];
 
 type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";

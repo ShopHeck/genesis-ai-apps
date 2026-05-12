@@ -23,12 +23,15 @@ import {
   XCircle,
   TerminalSquare,
   Smartphone,
+  Tablet,
+  Monitor,
   RefreshCw,
   PlayCircle,
   Crown,
   Pencil,
   RotateCcw,
   LayoutDashboard,
+  RotateCw,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import JSZip from "jszip";
@@ -46,6 +49,8 @@ type Project = {
   bundleId: string;
   summary: string;
   files: GeneratedFile[];
+  plan?: Record<string, unknown>;
+  reviewScore?: number;
 };
 
 type PromptTemplate = {
@@ -695,6 +700,7 @@ export default function Generator() {
           prompt: lastPromptUsed || prompt,
           appName: project.appName,
           summary: project.summary,
+          plan: project.plan ?? null,
         },
       });
       if (fnErr) throw new Error(fnErr.message);
@@ -1764,6 +1770,54 @@ function ValidationPanel({
 }
 
 // ─── Interactive app preview ──────────────────────────────────────────────
+type DeviceMode = "mobile" | "tablet" | "desktop";
+
+const DEVICE_CONFIG: Record<DeviceMode, {
+  label: string;
+  icon: typeof Smartphone;
+  iframeW: number;
+  iframeH: number;
+  frameClass: string;
+  frameRadius: string;
+  notch: boolean;
+  hint: string;
+}> = {
+  mobile: {
+    label: "Mobile",
+    icon: Smartphone,
+    iframeW: 390,
+    iframeH: 844,
+    frameClass: "rounded-[44px] p-[10px]",
+    frameRadius: "36px",
+    notch: true,
+    hint: "iPhone 15 · 390×844",
+  },
+  tablet: {
+    label: "Tablet",
+    icon: Tablet,
+    iframeW: 820,
+    iframeH: 1180,
+    frameClass: "rounded-[24px] p-[12px]",
+    frameRadius: "16px",
+    notch: false,
+    hint: "iPad · 820×1180",
+  },
+  desktop: {
+    label: "Desktop",
+    icon: Monitor,
+    iframeW: 1280,
+    iframeH: 800,
+    frameClass: "rounded-[12px] p-[8px]",
+    frameRadius: "4px",
+    notch: false,
+    hint: "Desktop · 1280×800",
+  },
+};
+
+// Max visual width available in the preview panel (conservative estimate)
+const PREVIEW_PANEL_MAX_W = 820;
+const PREVIEW_PANEL_MAX_H = 640;
+
 function AppPreview({
   html,
   loading,
@@ -1777,8 +1831,43 @@ function AppPreview({
   onRegenerate: () => void;
   appName: string;
 }) {
+  const [device, setDevice] = useState<DeviceMode>("mobile");
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const cfg = DEVICE_CONFIG[device];
+
+  // Scale so the iframe fits within PREVIEW_PANEL_MAX_W × PREVIEW_PANEL_MAX_H
+  const scaleW = PREVIEW_PANEL_MAX_W / cfg.iframeW;
+  const scaleH = PREVIEW_PANEL_MAX_H / cfg.iframeH;
+  const scale = Math.min(scaleW, scaleH, 1);
+
+  // Visual container dimensions after scaling
+  const visW = Math.round(cfg.iframeW * scale);
+  const visH = Math.round(cfg.iframeH * scale);
+
+  // Listen for runtime errors posted from inside the iframe
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "preview-runtime-error") {
+        setRuntimeError(e.data.message ?? "Runtime error in preview");
+      }
+      if (e.data?.type === "preview-ready") {
+        setRuntimeError(null);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Reset runtime error when new html arrives
+  useEffect(() => {
+    setRuntimeError(null);
+  }, [html]);
+
   return (
     <div className="glass-panel p-6">
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-primary font-medium">
@@ -1788,90 +1877,164 @@ function AppPreview({
             Try {appName} in your browser
           </h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-            A web-based interactive mockup of your iOS app — tap around to feel the flows
-            before opening Xcode. Not the real Swift app, but a faithful UI preview.
+            An interactive prototype built from your app's design spec — click through
+            screens, fill forms, and feel the navigation before opening Xcode.
           </p>
         </div>
-        <Button
-          onClick={onRegenerate}
-          disabled={loading}
-          variant="outline"
-          size="sm"
-          className="border-border/60"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="animate-spin" size={14} />
-              Generating…
-            </>
-          ) : (
-            <>
-              <RefreshCw size={14} />
-              {html ? "Regenerate" : "Generate preview"}
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={onRegenerate}
+            disabled={loading}
+            variant="outline"
+            size="sm"
+            className="border-border/60"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={14} />
+                Generating…
+              </>
+            ) : (
+              <>
+                <RefreshCw size={14} />
+                {html ? "Regenerate" : "Generate preview"}
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
+      {/* Device switcher */}
+      <div className="flex items-center gap-1 mb-5 bg-card/40 rounded-lg p-1 w-fit mx-auto border border-border/40">
+        {(Object.keys(DEVICE_CONFIG) as DeviceMode[]).map((d) => {
+          const dc = DEVICE_CONFIG[d];
+          const Icon = dc.icon;
+          return (
+            <button
+              key={d}
+              onClick={() => setDevice(d)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                device === d
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon size={13} />
+              <span className="hidden sm:inline">{dc.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Preview stage */}
       <div className="flex justify-center">
-        <div className="relative" style={{ width: 320, height: 692 }}>
+        {/* Outer container — fixed at the visual size so layout doesn't jump */}
+        <div style={{ width: visW, height: visH }} className="relative">
+          {/* Device frame shell */}
           <div
-            className="absolute inset-0 rounded-[44px] p-[10px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+            className={`absolute inset-0 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.7)] ${cfg.frameClass}`}
             style={{
-              background:
-                "linear-gradient(145deg, hsl(var(--border)) 0%, hsl(var(--card)) 100%)",
+              background: "linear-gradient(145deg, hsl(var(--border)) 0%, hsl(var(--card)) 100%)",
             }}
           >
-            <div className="relative w-full h-full rounded-[36px] overflow-hidden bg-black">
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-6 bg-black rounded-full z-10 pointer-events-none" />
-
-              {loading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground bg-[hsl(228_20%_4%)]">
-                  <Loader2 className="animate-spin text-primary" size={28} />
-                  <p className="text-xs font-mono">building interactive preview…</p>
-                  <p className="text-[10px] text-muted-foreground/60 max-w-[200px] text-center">
-                    Rendering your app's screens, navigation, and sample data
-                  </p>
-                </div>
+            {/* Screen area */}
+            <div
+              className="relative w-full h-full overflow-hidden bg-black"
+              style={{ borderRadius: cfg.frameRadius }}
+            >
+              {/* Notch (mobile only) */}
+              {cfg.notch && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-6 bg-black rounded-full z-10 pointer-events-none" />
               )}
 
-              {!loading && error && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-[hsl(228_20%_4%)]">
-                  <AlertTriangle className="text-destructive" size={24} />
-                  <p className="text-xs text-foreground font-medium">Preview failed</p>
-                  <p className="text-[10px] text-muted-foreground">{error}</p>
-                  <Button onClick={onRegenerate} size="sm" variant="outline" className="mt-2">
-                    <RefreshCw size={12} /> Retry
-                  </Button>
-                </div>
-              )}
+              {/* iframe — rendered at FULL device resolution, then scaled */}
+              <div
+                style={{
+                  width: cfg.iframeW,
+                  height: cfg.iframeH,
+                  transform: `scale(${scale})`,
+                  transformOrigin: "top left",
+                  pointerEvents: "auto",
+                }}
+              >
+                {loading && (
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 text-muted-foreground bg-[hsl(228_20%_4%)]"
+                    style={{ width: cfg.iframeW, height: cfg.iframeH }}
+                  >
+                    <Loader2 className="animate-spin text-primary" size={32} />
+                    <p className="text-sm font-mono">building interactive preview…</p>
+                    <p className="text-xs text-muted-foreground/60 max-w-[260px] text-center">
+                      Rendering screens, navigation, and seed data from your design spec
+                    </p>
+                  </div>
+                )}
 
-              {!loading && !error && !html && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center bg-[hsl(228_20%_4%)]">
-                  <PlayCircle className="text-primary" size={32} />
-                  <p className="text-xs text-foreground font-medium">Tap to preview</p>
-                  <Button onClick={onRegenerate} size="sm" className="mt-2">
-                    <Smartphone size={12} /> Generate preview
-                  </Button>
-                </div>
-              )}
+                {!loading && error && (
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 p-8 text-center bg-[hsl(228_20%_4%)]"
+                    style={{ width: cfg.iframeW, height: cfg.iframeH }}
+                  >
+                    <AlertTriangle className="text-destructive" size={28} />
+                    <p className="text-sm text-foreground font-medium">Preview failed</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">{error}</p>
+                    <Button onClick={onRegenerate} size="sm" variant="outline" className="mt-2">
+                      <RefreshCw size={12} /> Retry
+                    </Button>
+                  </div>
+                )}
 
-              {!loading && html && (
-                <iframe
-                  title={`${appName} preview`}
-                  srcDoc={html}
-                  sandbox="allow-scripts allow-forms"
-                  className="w-full h-full border-0 bg-black"
-                  style={{ colorScheme: "dark" }}
-                />
-              )}
+                {!loading && !error && !html && (
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 p-8 text-center bg-[hsl(228_20%_4%)]"
+                    style={{ width: cfg.iframeW, height: cfg.iframeH }}
+                  >
+                    <PlayCircle className="text-primary" size={40} />
+                    <p className="text-sm text-foreground font-medium">Interactive preview</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">
+                      Click to generate a responsive prototype from your design spec
+                    </p>
+                    <Button onClick={onRegenerate} size="sm" className="mt-2">
+                      <Smartphone size={12} /> Generate preview
+                    </Button>
+                  </div>
+                )}
+
+                {!loading && html && (
+                  <iframe
+                    ref={iframeRef}
+                    title={`${appName} preview`}
+                    srcDoc={html}
+                    sandbox="allow-scripts allow-forms"
+                    className="border-0 bg-black"
+                    style={{ width: cfg.iframeW, height: cfg.iframeH, colorScheme: "dark", display: "block" }}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <p className="text-[10px] text-muted-foreground/60 text-center mt-4">
-        Preview runs in a sandboxed iframe · iPhone 15 viewport, scaled to fit
+      {/* Runtime error banner */}
+      {runtimeError && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+          <AlertTriangle className="text-destructive shrink-0 mt-0.5" size={14} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-foreground">Preview runtime error</p>
+            <p className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate">{runtimeError}</p>
+          </div>
+          <button
+            onClick={onRegenerate}
+            className="text-[11px] text-primary hover:text-primary/80 flex items-center gap-1 shrink-0"
+          >
+            <RotateCw size={11} /> Fix with AI
+          </button>
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/60 text-center mt-3">
+        {cfg.hint} · sandboxed iframe · responsive layout · {scale < 1 ? `scaled ${Math.round(scale * 100)}% to fit` : "1:1"}
       </p>
     </div>
   );

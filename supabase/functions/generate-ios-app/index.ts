@@ -1,6 +1,9 @@
 // Generates a complete SwiftUI Xcode project from a natural-language prompt
 // Two-phase pipeline: (1) Architect plans the app, (2) Engineer ships full code.
-// Returns JSON: { appName, bundleId, files: [{path, content}], summary, plan }
+// Supports streaming (SSE) and two AI backends: Gemini (default) + Claude Opus (Studio).
+// Enforces per-user monthly quotas based on subscription plan.
+
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -190,8 +193,30 @@ const TOOL_PROJECT = {
   },
 };
 
+// -------- SSE helpers --------
+function sseEvent(type: string, data: Record<string, unknown>): string {
+  return `data: ${JSON.stringify({ type, ...data })}\n\n`;
+}
+
+// -------- Quota enforcement --------
+const PLAN_LIMITS: Record<string, number> = {
+  free: 3,
+  pro: 30,
+  studio: Infinity,
+};
+
+async function checkQuota(supabase: ReturnType<typeof createClient>, userId: string): Promise<{ allowed: boolean; plan: string; used: number; limit: number }> {
+  const { data: planData } = await supabase.rpc("get_user_plan", { p_user_id: userId });
+  const { data: usedData } = await supabase.rpc("count_monthly_generations", { p_user_id: userId });
+  const plan = (planData as string) ?? "free";
+  const used = (usedData as number) ?? 0;
+  const limit = PLAN_LIMITS[plan] ?? 3;
+  return { allowed: used < limit, plan, used, limit };
+}
+
+// -------- Gemini gateway call --------
 async function callGateway(body: unknown, apiKey: string) {
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -199,40 +224,22 @@ async function callGateway(body: unknown, apiKey: string) {
     },
     body: JSON.stringify(body),
   });
-  return resp;
 }
 
-function gatewayErrorResponse(status: number) {
-  if (status === 429) {
-    return new Response(
-      JSON.stringify({ error: "Rate limit reached. Please wait a moment and try again." }),
-      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
-  if (status === 402) {
-    return new Response(
-      JSON.stringify({ error: "AI credits exhausted. Add credits in Lovable workspace settings." }),
-      { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
-  return new Response(JSON.stringify({ error: "AI generation failed." }), {
-    status: 500,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function gatewayError(status: number): string {
+  if (status === 429) return "Rate limit reached. Please wait a moment and try again.";
+  if (status === 402) return "AI credits exhausted. Add credits in Lovable workspace settings.";
+  return "AI generation failed.";
 }
 
-function validateProject(project: any): string | null {
+function validateProject(project: unknown): string | null {
   if (!project || typeof project !== "object") return "Invalid project payload.";
-  if (!Array.isArray(project.files) || project.files.length < 12) {
+  const p = project as { files?: unknown[] };
+  if (!Array.isArray(p.files) || p.files.length < 12) {
     return "AI returned an incomplete project (need 12+ files). Try again.";
   }
-  const paths = new Set<string>(project.files.map((f: any) => f.path));
-  const required = [
-    "README.md",
-    "project.yml",
-    ".gitignore",
-  ];
-  for (const r of required) {
+  const paths = new Set<string>((p.files as { path: string }[]).map((f) => f.path));
+  for (const r of ["README.md", "project.yml", ".gitignore"]) {
     if (!paths.has(r)) return `Missing required file: ${r}`;
   }
   const hasAppEntry = [...paths].some((p) => /Sources\/.*App\.swift$/.test(p));
@@ -241,8 +248,7 @@ function validateProject(project: any): string | null {
   if (!hasAppEntry) return "Missing @main App entry file.";
   if (!hasContentView) return "Missing ContentView.swift.";
   if (!hasTheme) return "Missing Core/Theme.swift.";
-  // Reject obvious truncation
-  for (const f of project.files) {
+  for (const f of p.files as { path: string; content: string }[]) {
     if (typeof f.content !== "string" || f.content.length < 20) {
       return `File ${f.path} is empty or too short.`;
     }
@@ -253,128 +259,266 @@ function validateProject(project: any): string | null {
   return null;
 }
 
+// -------- Claude Opus generation --------
+async function generateWithClaude(prompt: string, anthropicKey: string, encoder: TextEncoder, controller: ReadableStreamDefaultController) {
+  // Phase 1: Architect via Claude (uses Haiku for speed)
+  controller.enqueue(encoder.encode(sseEvent("progress", { phase: "analyzing", message: "[claude] architect phase — designing app structure…", percent: 20 })));
+
+  const architectResp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": anthropicKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 4000,
+      system: [
+        { type: "text", text: ARCHITECT_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
+      tools: [TOOL_PLAN.function],
+      tool_choice: { type: "tool", name: "emit_app_plan" },
+      messages: [{ role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` }],
+    }),
+  });
+
+  if (!architectResp.ok) {
+    const t = await architectResp.text();
+    throw new Error(`Architect phase failed (${architectResp.status}): ${t.slice(0, 200)}`);
+  }
+
+  const architectData = await architectResp.json();
+  const planBlock = architectData.content?.find((b: { type: string }) => b.type === "tool_use");
+  if (!planBlock?.input) throw new Error("Claude architect did not return a plan.");
+  const plan = planBlock.input;
+
+  controller.enqueue(encoder.encode(sseEvent("progress", { phase: "generating", message: "[claude] engineer phase — writing Swift 6 project…", percent: 50 })));
+
+  // Phase 2: Engineer via Claude Opus
+  const planForEngineer = JSON.stringify(plan, null, 2);
+  const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${planForEngineer}\n\`\`\`\n\nShip the complete Xcode project. 16-24 real, complete files. No stubs.`;
+
+  const engineerResp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": anthropicKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-7",
+      max_tokens: 32000,
+      system: [
+        { type: "text", text: ENGINEER_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
+      tools: [TOOL_PROJECT.function],
+      tool_choice: { type: "tool", name: "emit_xcode_project" },
+      messages: [{ role: "user", content: engineerUserMsg }],
+    }),
+  });
+
+  if (!engineerResp.ok) {
+    const t = await engineerResp.text();
+    throw new Error(`Engineer phase failed (${engineerResp.status}): ${t.slice(0, 200)}`);
+  }
+
+  const engineerData = await engineerResp.json();
+  const projectBlock = engineerData.content?.find((b: { type: string }) => b.type === "tool_use");
+  if (!projectBlock?.input) throw new Error("Claude did not return a project.");
+  return { project: projectBlock.input, plan };
+}
+
+// -------- Gemini generation --------
+async function generateWithGemini(prompt: string, lovableKey: string, encoder: TextEncoder, controller: ReadableStreamDefaultController) {
+  controller.enqueue(encoder.encode(sseEvent("progress", { phase: "analyzing", message: "[agent] booting planner · model=gemini-2.5-flash", percent: 15 })));
+
+  const planResp = await callGateway({
+    model: "google/gemini-2.5-flash",
+    max_tokens: 4000,
+    messages: [
+      { role: "system", content: ARCHITECT_PROMPT },
+      { role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` },
+    ],
+    tools: [TOOL_PLAN],
+    tool_choice: { type: "function", function: { name: "emit_app_plan" } },
+  }, lovableKey);
+
+  if (!planResp.ok) {
+    throw new Error(gatewayError(planResp.status));
+  }
+
+  const planData = await planResp.json();
+  const planCall = planData?.choices?.[0]?.message?.tool_calls?.[0];
+  if (!planCall?.function?.arguments) throw new Error("Architect did not return a plan.");
+  const plan = JSON.parse(planCall.function.arguments);
+
+  controller.enqueue(encoder.encode(sseEvent("progress", { phase: "generating", message: `[plan] ${plan.appName} · ${plan.screens?.length ?? 0} screens · engineer starting…`, percent: 40 })));
+
+  const planForEngineer = JSON.stringify(plan, null, 2);
+  const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${planForEngineer}\n\`\`\`\n\nNow ship the complete Xcode project. 16-24 real, complete files. No stubs. The app must build under Swift 6 strict concurrency, run on iOS 18, navigate, persist via SwiftData, and feel polished on first launch with the seeded data described in the plan.\n\nUse the accent color from the plan in AccentColor.colorset/Contents.json. Wire up every framework listed. Implement every screen described. Hit every delight moment.`;
+
+  const buildResp = await callGateway({
+    model: "google/gemini-2.5-pro",
+    max_tokens: 32000,
+    messages: [
+      { role: "system", content: ENGINEER_PROMPT },
+      { role: "user", content: engineerUserMsg },
+    ],
+    tools: [TOOL_PROJECT],
+    tool_choice: { type: "function", function: { name: "emit_xcode_project" } },
+  }, lovableKey);
+
+  if (!buildResp.ok) {
+    throw new Error(gatewayError(buildResp.status));
+  }
+
+  const buildData = await buildResp.json();
+  const toolCall = buildData?.choices?.[0]?.message?.tool_calls?.[0];
+  if (!toolCall?.function?.arguments) throw new Error("AI did not return a project.");
+  return { project: JSON.parse(toolCall.function.arguments), plan };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+  let userId: string | null = null;
+  let userPlan = "free";
+
+  // Auth check (optional — anon users get free quota tracked differently)
+  const authHeader = req.headers.get("Authorization");
+  if (authHeader) {
+    try {
+      const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user } } = await userClient.auth.getUser();
+      userId = user?.id ?? null;
+    } catch { /* non-fatal */ }
+  }
+
+  const adminSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+  // Quota enforcement for logged-in users
+  if (userId) {
+    const quota = await checkQuota(adminSupabase, userId);
+    userPlan = quota.plan;
+    if (!quota.allowed) {
+      return new Response(
+        JSON.stringify({ error: `Monthly limit reached (${quota.used}/${quota.limit} builds). Upgrade your plan at /pricing.` }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  }
+
+  let body: { prompt?: string; model?: string };
   try {
-    const { prompt } = await req.json();
-    if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
-      return new Response(
-        JSON.stringify({ error: "Please describe the app you want to build (min 5 chars)." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "AI gateway not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // -------- PHASE 1: Architect plan --------
-    const planResp = await callGateway({
-      model: "google/gemini-2.5-flash",
-      max_tokens: 4000,
-      messages: [
-        { role: "system", content: ARCHITECT_PROMPT },
-        { role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` },
-      ],
-      tools: [TOOL_PLAN],
-      tool_choice: { type: "function", function: { name: "emit_app_plan" } },
-    }, LOVABLE_API_KEY);
-
-    if (!planResp.ok) {
-      const t = await planResp.text();
-      console.error("Architect phase failed", planResp.status, t.slice(0, 500));
-      return gatewayErrorResponse(planResp.status);
-    }
-
-    const planData = await planResp.json();
-    const planCall = planData?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!planCall?.function?.arguments) {
-      console.error("No plan returned", JSON.stringify(planData).slice(0, 800));
-      return new Response(JSON.stringify({ error: "Architect did not return a plan." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    let plan: any;
-    try {
-      plan = JSON.parse(planCall.function.arguments);
-    } catch (e) {
-      console.error("Plan JSON parse error", e);
-      return new Response(JSON.stringify({ error: "Invalid plan JSON from architect." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // -------- PHASE 2: Engineer build --------
-    const planForEngineer = JSON.stringify(plan, null, 2);
-    const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${planForEngineer}\n\`\`\`\n\nNow ship the complete Xcode project. 16-24 real, complete files. No stubs. The app must build under Swift 6 strict concurrency, run on iOS 18, navigate, persist via SwiftData, and feel polished on first launch with the seeded data described in the plan.\n\nUse the accent color from the plan in AccentColor.colorset/Contents.json. Wire up every framework listed. Implement every screen described. Hit every delight moment.`;
-
-    const buildResp = await callGateway({
-      model: "google/gemini-2.5-pro",
-      max_tokens: 32000,
-      messages: [
-        { role: "system", content: ENGINEER_PROMPT },
-        { role: "user", content: engineerUserMsg },
-      ],
-      tools: [TOOL_PROJECT],
-      tool_choice: { type: "function", function: { name: "emit_xcode_project" } },
-    }, LOVABLE_API_KEY);
-
-    if (!buildResp.ok) {
-      const t = await buildResp.text();
-      console.error("Engineer phase failed", buildResp.status, t.slice(0, 500));
-      return gatewayErrorResponse(buildResp.status);
-    }
-
-    const buildData = await buildResp.json();
-    const toolCall = buildData?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      console.error("No project tool call", JSON.stringify(buildData).slice(0, 800));
-      return new Response(JSON.stringify({ error: "AI did not return a project." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    let project: any;
-    try {
-      project = JSON.parse(toolCall.function.arguments);
-    } catch (e) {
-      console.error("Project JSON parse error", e);
-      return new Response(JSON.stringify({ error: "Invalid project JSON from AI." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const validationError = validateProject(project);
-    if (validationError) {
-      console.error("Validation failed:", validationError);
-      return new Response(
-        JSON.stringify({ error: validationError, plan }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    project.plan = plan;
-
-    return new Response(JSON.stringify(project), {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+      status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
-    console.error("generate-ios-app error", e);
+  }
+
+  const { prompt, model = "gemini-pro" } = body;
+  if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ error: "Please describe the app you want to build (min 5 chars)." }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
+
+  // Studio-only: Claude model
+  if (model === "claude-opus" && userPlan !== "studio") {
+    return new Response(
+      JSON.stringify({ error: "Claude Opus is available on the Studio plan. Upgrade at /pricing." }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // Stream the response via SSE
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "analyzing", message: "> prompt received — initializing pipeline…", percent: 5 })));
+
+        let project: unknown;
+        let plan: unknown;
+        const modelUsed = model === "claude-opus" ? "claude-opus-4-7" : "gemini-2.5-pro";
+
+        if (model === "claude-opus" && ANTHROPIC_API_KEY) {
+          ({ project, plan } = await generateWithClaude(prompt, ANTHROPIC_API_KEY, encoder, controller));
+        } else {
+          if (!LOVABLE_API_KEY) throw new Error("AI gateway not configured.");
+          ({ project, plan } = await generateWithGemini(prompt, LOVABLE_API_KEY, encoder, controller));
+        }
+
+        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "bundling", message: "[bundler] validating project structure…", percent: 85 })));
+
+        const validationError = validateProject(project);
+        if (validationError) throw new Error(validationError);
+
+        (project as Record<string, unknown>).plan = plan;
+
+        // Persist generation to DB
+        if (userId) {
+          const p = project as { appName?: string; bundleId?: string; summary?: string; files?: unknown[] };
+          await adminSupabase.from("generations").insert({
+            user_id: userId,
+            prompt,
+            app_name: p.appName,
+            bundle_id: p.bundleId,
+            summary: p.summary,
+            files: p.files,
+            files_count: p.files?.length ?? 0,
+            status: "success",
+            model_used: modelUsed,
+            cost_usd: model === "claude-opus" ? 0.12 : 0.08,
+          });
+        }
+
+        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "done", message: "[done] project ready", percent: 100 })));
+        controller.enqueue(encoder.encode(sseEvent("result", { project })));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        console.error("generate-ios-app error:", msg);
+
+        // Record failed generation
+        if (userId) {
+          await adminSupabase.from("generations").insert({
+            user_id: userId,
+            prompt,
+            status: "failed",
+            model_used: model === "claude-opus" ? "claude-opus-4-7" : "gemini-2.5-pro",
+          });
+        }
+
+        controller.enqueue(encoder.encode(sseEvent("error", { message: msg })));
+      } finally {
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 });

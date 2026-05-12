@@ -25,13 +25,20 @@ import {
   Smartphone,
   RefreshCw,
   PlayCircle,
+  Crown,
+  Pencil,
+  RotateCcw,
+  LayoutDashboard,
 } from "lucide-react";
+import Editor from "@monaco-editor/react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth, getPlanLimit } from "@/hooks/useAuth";
+import AuthModal from "@/components/AuthModal";
 
 type GeneratedFile = { path: string; content: string };
 type Project = {
@@ -432,10 +439,13 @@ const STAGE_SCRIPT: Record<Exclude<Stage, "idle" | "error" | "done">, { kind: Lo
 };
 
 export default function Generator() {
+  const { user, plan, monthlyUsage } = useAuth();
   const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState<"gemini-pro" | "claude-opus">("gemini-pro");
   const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [editedFiles, setEditedFiles] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -443,9 +453,13 @@ export default function Generator() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [lastPromptUsed, setLastPromptUsed] = useState<string>("");
+  const [showAuth, setShowAuth] = useState(false);
+  const [regeneratingFile, setRegeneratingFile] = useState(false);
   const startedAt = useRef<number | null>(null);
   const logIdRef = useRef(0);
   const terminalRef = useRef<HTMLDivElement | null>(null);
+
+  const planLimit = getPlanLimit(plan);
 
   const loading = stage === "analyzing" || stage === "generating" || stage === "bundling";
 
@@ -494,9 +508,27 @@ export default function Generator() {
       toast.error("Describe your app in a bit more detail.");
       return;
     }
+
+    // Quota check for logged-in users
+    if (user && monthlyUsage >= planLimit) {
+      toast.error(`Monthly limit reached (${monthlyUsage}/${planLimit}). Upgrade your plan.`);
+      return;
+    }
+
+    // Anonymous users: gate after 1 use via localStorage
+    if (!user) {
+      const anonUses = parseInt(localStorage.getItem("apexbuild_anon_uses") ?? "0", 10);
+      if (anonUses >= 1) {
+        setShowAuth(true);
+        toast.info("Sign in to get 3 free builds per month.");
+        return;
+      }
+    }
+
     setError(null);
     setProject(null);
     setSelectedFile(null);
+    setEditedFiles(new Map());
     setElapsed(0);
     setLogs([]);
     setPreviewHtml(null);
@@ -507,35 +539,132 @@ export default function Generator() {
     setStage("analyzing");
     pushLog("system", `> prompt received (${prompt.trim().length} chars)`);
 
-    const analyzeTimer = setTimeout(() => {
-      setStage((s) => (s === "analyzing" ? "generating" : s));
-    }, 4200);
-
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke("generate-ios-app", {
-        body: { prompt },
+      // Get auth token for the request
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const fnUrl = `${supabaseUrl}/functions/v1/generate-ios-app`;
+
+      const resp = await fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": supabaseKey,
+          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ prompt, model }),
       });
-      clearTimeout(analyzeTimer);
-      if (fnErr) throw new Error(fnErr.message);
-      if (data?.error) throw new Error(data.error);
-      if (!data?.files?.length) throw new Error("Empty project returned.");
 
-      setStage("bundling");
-      pushLog("success", `[codegen] generated ${data.files.length} files for "${data.appName}"`);
-      await new Promise((r) => setTimeout(r, 900));
+      if (!resp.ok || !resp.body) {
+        const errText = await resp.text().catch(() => "");
+        let errMsg = "Generation failed";
+        try { errMsg = JSON.parse(errText).error ?? errMsg; } catch { /* */ }
+        throw new Error(errMsg);
+      }
 
-      setProject(data as Project);
-      setSelectedFile(data.files[0].path);
-      setStage("done");
-      pushLog("success", "[done] project ready · awaiting download");
-      toast.success(`${data.appName} generated — ${data.files.length} files`);
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (raw === "[DONE]") break;
+
+          let event: { type: string; [key: string]: unknown };
+          try { event = JSON.parse(raw); } catch { continue; }
+
+          if (event.type === "progress") {
+            const phase = event.phase as string;
+            const message = event.message as string;
+            const percent = event.percent as number;
+            pushLog(
+              phase === "done" ? "success" : phase === "error" ? "error" : "thought",
+              message ?? phase
+            );
+            if (percent >= 85) setStage("bundling");
+            else if (percent >= 30) setStage("generating");
+            else setStage("analyzing");
+          } else if (event.type === "result") {
+            const data = event.project as Project & { plan?: unknown };
+            if (!data?.files?.length) throw new Error("Empty project returned.");
+            pushLog("success", `[codegen] generated ${data.files.length} files for "${data.appName}"`);
+
+            // Track anon usage in localStorage
+            if (!user) {
+              const cur = parseInt(localStorage.getItem("apexbuild_anon_uses") ?? "0", 10);
+              localStorage.setItem("apexbuild_anon_uses", String(cur + 1));
+            }
+
+            setProject(data as Project);
+            setSelectedFile(data.files[0].path);
+            setStage("done");
+            pushLog("success", "[done] project ready · awaiting download");
+            toast.success(`${data.appName} generated — ${data.files.length} files`);
+
+            // Prompt sign-up after anon first success
+            if (!user) {
+              setTimeout(() => {
+                toast.info("Sign up to save this project and get more builds", {
+                  action: { label: "Sign in", onClick: () => setShowAuth(true) },
+                  duration: 8000,
+                });
+              }, 2000);
+            }
+          } else if (event.type === "error") {
+            throw new Error((event.message as string) ?? "Generation failed");
+          }
+        }
+      }
     } catch (e) {
-      clearTimeout(analyzeTimer);
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
       setStage("error");
       pushLog("error", `[error] ${msg}`);
       toast.error(msg);
+    }
+  };
+
+  const handleRegenerateFile = async () => {
+    if (!project || !selectedFile || !user) {
+      if (!user) { setShowAuth(true); return; }
+      return;
+    }
+    if (plan === "free") {
+      toast.error("File regeneration requires a Pro or Studio plan.");
+      return;
+    }
+    setRegeneratingFile(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentContent = editedFiles.get(selectedFile) ?? project.files.find(f => f.path === selectedFile)?.content ?? "";
+      const { data, error: fnErr } = await supabase.functions.invoke("regenerate-file", {
+        body: {
+          filePath: selectedFile,
+          currentContent,
+          prompt: lastPromptUsed,
+          appContext: { appName: project.appName, summary: project.summary },
+        },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      if (data?.error) throw new Error(data.error);
+      if (data?.content) {
+        setEditedFiles(prev => new Map(prev).set(selectedFile, data.content));
+        toast.success("File regenerated");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Regeneration failed");
+    } finally {
+      setRegeneratingFile(false);
     }
   };
 
@@ -549,7 +678,8 @@ export default function Generator() {
     }
     const zip = new JSZip();
     const root = zip.folder(project.appName)!;
-    project.files.forEach((f) => root.file(f.path, f.content));
+    // Include any in-browser edits made via Monaco
+    project.files.forEach((f) => root.file(f.path, editedFiles.get(f.path) ?? f.content));
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `${project.appName}.zip`);
     toast.success("Project downloaded");
@@ -594,6 +724,8 @@ export default function Generator() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <AuthModal open={showAuth} onClose={() => setShowAuth(false)} reason="Sign in to unlock more builds" />
+
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b border-border/40 bg-background/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -608,9 +740,27 @@ export default function Generator() {
             <span className="gradient-text">Apex</span>Build{" "}
             <span className="text-muted-foreground font-normal">/ Generator</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Apple size={14} />
-            <span className="hidden sm:inline">Xcode 16+ · iOS 18 · Swift 6</span>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+              <Apple size={14} />
+              <span>Xcode 16+ · iOS 18 · Swift 6</span>
+            </div>
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  {monthlyUsage}/{planLimit === Infinity ? "∞" : planLimit} builds
+                </span>
+                <Link to="/dashboard">
+                  <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground h-7 px-2">
+                    <LayoutDashboard size={14} />
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-foreground h-7" onClick={() => setShowAuth(true)}>
+                Sign in
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -737,9 +887,41 @@ export default function Generator() {
           </div>
 
           <div className="flex items-center justify-between mt-6 gap-4 flex-wrap">
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Wand2 size={12} /> Powered by Lovable AI · Gemini 2.5 Pro
-            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Wand2 size={12} /> Powered by Gemini 2.5 Pro
+              </p>
+              {plan === "studio" && (
+                <div className="flex items-center gap-1.5 bg-card/60 border border-border/60 rounded-lg px-2 py-1">
+                  <span className="text-xs text-muted-foreground">Model:</span>
+                  <button
+                    onClick={() => setModel("gemini-pro")}
+                    className={`text-xs px-2 py-0.5 rounded transition-colors ${model === "gemini-pro" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Gemini
+                  </button>
+                  <button
+                    onClick={() => setModel("claude-opus")}
+                    className={`text-xs px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${model === "claude-opus" ? "bg-violet-500/20 text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <Crown size={10} /> Claude
+                  </button>
+                </div>
+              )}
+              {user && planLimit !== Infinity && (
+                <span className={`text-xs ${monthlyUsage >= planLimit ? "text-destructive" : "text-muted-foreground"}`}>
+                  {monthlyUsage}/{planLimit} builds this month
+                  {monthlyUsage >= planLimit && (
+                    <Link to="/pricing" className="ml-1 text-primary underline">Upgrade</Link>
+                  )}
+                </span>
+              )}
+              {!user && (
+                <button onClick={() => setShowAuth(true)} className="text-xs text-primary underline">
+                  Sign in for 3 free builds/mo
+                </button>
+              )}
+            </div>
             <Button
               onClick={handleGenerate}
               disabled={loading}
@@ -993,15 +1175,86 @@ export default function Generator() {
                   />
                 </div>
 
-                {/* File content */}
+                {/* File content — Monaco Editor (Pro+) or read-only pre (Free) */}
                 <div className="glass-panel overflow-hidden flex flex-col min-h-[500px]">
-                  <div className="border-b border-border/40 px-4 py-2.5 flex items-center gap-2 text-xs font-mono text-muted-foreground bg-card/40">
-                    <FileCode2 size={12} />
-                    {selectedFile}
+                  <div className="border-b border-border/40 px-4 py-2 flex items-center justify-between gap-2 bg-card/40">
+                    <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground min-w-0">
+                      <FileCode2 size={12} className="shrink-0" />
+                      <span className="truncate">{selectedFile}</span>
+                      {selectedFile && editedFiles.has(selectedFile) && (
+                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">edited</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {plan !== "free" && selectedFile && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs border-border/60 hover:border-primary/40"
+                          onClick={handleRegenerateFile}
+                          disabled={regeneratingFile}
+                          title="Regenerate this file with AI"
+                        >
+                          {regeneratingFile ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                          <span className="ml-1.5 hidden sm:inline">Regenerate</span>
+                        </Button>
+                      )}
+                      {plan === "free" && selectedFile && (
+                        <button
+                          onClick={() => setShowAuth(true)}
+                          className="text-[10px] text-primary/70 flex items-center gap-1 hover:text-primary"
+                          title="Upgrade to Pro to edit files"
+                        >
+                          <Pencil size={10} /> Upgrade to edit
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <pre className="overflow-auto flex-1 p-4 text-xs font-mono text-foreground/90 leading-relaxed">
-                    <code>{currentFile?.content ?? ""}</code>
-                  </pre>
+
+                  {plan !== "free" ? (
+                    <Editor
+                      height="560px"
+                      theme="vs-dark"
+                      language={
+                        selectedFile?.endsWith(".swift") ? "swift" :
+                        selectedFile?.endsWith(".yml") || selectedFile?.endsWith(".yaml") ? "yaml" :
+                        selectedFile?.endsWith(".json") ? "json" :
+                        selectedFile?.endsWith(".md") ? "markdown" :
+                        selectedFile?.endsWith(".gitignore") ? "ini" : "plaintext"
+                      }
+                      value={editedFiles.get(selectedFile ?? "") ?? currentFile?.content ?? ""}
+                      onChange={(val) => {
+                        if (selectedFile && val !== undefined) {
+                          setEditedFiles(prev => new Map(prev).set(selectedFile, val));
+                        }
+                      }}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 12,
+                        lineNumbers: "on",
+                        scrollBeyondLastLine: false,
+                        wordWrap: "on",
+                        readOnly: false,
+                        automaticLayout: true,
+                      }}
+                    />
+                  ) : (
+                    <div className="relative flex-1 overflow-auto">
+                      <pre className="p-4 text-xs font-mono text-foreground/90 leading-relaxed">
+                        <code>{currentFile?.content ?? ""}</code>
+                      </pre>
+                      <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
+                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
+                        <button
+                          onClick={() => setShowAuth(true)}
+                          className="glass-panel px-4 py-2 text-xs text-primary border-primary/30 hover:border-primary/60 transition-colors flex items-center gap-2"
+                        >
+                          <Pencil size={12} />
+                          Upgrade to Pro to edit files in-browser
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

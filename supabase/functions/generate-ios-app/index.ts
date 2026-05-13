@@ -709,7 +709,7 @@ async function generateWithGemini(
   enqueue("progress", { phase: "analyzing", message: "[agent] architect — designing app structure & design system…", percent: 10 });
 
   const planResp = await callGateway({
-    model: "google/gemini-2.5-flash",
+    model: "google/gemini-2.5-pro",
     max_tokens: 6000,
     messages: [
       { role: "system", content: ARCHITECT_PROMPT },
@@ -755,7 +755,7 @@ async function generateWithGemini(
 
   const manifest = buildReviewManifest(project, plan);
   const reviewResp = await callGateway({
-    model: "google/gemini-2.5-flash",
+    model: "google/gemini-2.5-pro",
     max_tokens: 3000,
     messages: [
       { role: "system", content: REVIEWER_PROMPT },

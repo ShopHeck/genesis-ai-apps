@@ -9,6 +9,7 @@
 // Enforces per-user monthly quotas based on subscription plan.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { callAI, AIError, AITool, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -426,30 +427,9 @@ async function checkQuota(supabase: ReturnType<typeof createClient>, userId: str
   return { allowed: used < limit, plan, used, limit };
 }
 
-// ─────────────────────────────────────────────────────────────
-// Gemini gateway
-// ─────────────────────────────────────────────────────────────
-async function callGateway(body: unknown, apiKey: string) {
-  return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-}
-
-async function gatewayError(resp: Response): Promise<string> {
-  if (resp.status === 429) return "Rate limit reached. Please wait a moment and try again.";
-  if (resp.status === 402) return "AI credits exhausted. Add credits in Lovable workspace settings.";
-  const body = await resp.text().catch(() => "");
-  return `AI gateway error (${resp.status}): ${body.slice(0, 300) || "(empty body)"}`;
-}
-
-// Anthropic requires "input_schema" where OpenAI uses "parameters".
-function toAnthropicTool(t: { name: string; description: string; parameters: unknown }) {
-  return { name: t.name, description: t.description, input_schema: t.parameters };
+// Convert our OpenAI-style tool definitions to the AITool shape used by callAI.
+function toAITool(t: { function: { name: string; description: string; parameters: Record<string, unknown> } }): AITool {
+  return t.function;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -509,308 +489,98 @@ function buildReviewManifest(project: { files: { path: string; content: string }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Claude path (Studio tier)
+// Generation pipeline (provider-agnostic)
 // ─────────────────────────────────────────────────────────────
-async function generateWithClaude(
+async function generate(
   prompt: string,
-  anthropicKey: string,
+  provider: Provider,
+  apiKey: string,
   encoder: TextEncoder,
   controller: ReadableStreamDefaultController,
 ) {
   const enqueue = (type: string, data: Record<string, unknown>) =>
     controller.enqueue(encoder.encode(sseEvent(type, data)));
+  const models = DEFAULT_MODELS[provider];
+  const tag = `[${provider}]`;
 
   // Phase 1: Architect
-  enqueue("progress", { phase: "analyzing", message: "[claude] architect — designing app structure & design system…", percent: 10 });
-
-  const architectResp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 6000,
-      system: [{ type: "text", text: ARCHITECT_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [toAnthropicTool(TOOL_PLAN.function)],
-      tool_choice: { type: "tool", name: "emit_app_plan" },
-      messages: [{ role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` }],
-    }),
+  enqueue("progress", { phase: "analyzing", message: `${tag} architect — designing app structure & design system…`, percent: 10 });
+  const architect = await callAI({
+    provider, apiKey, model: models.architect,
+    system: ARCHITECT_PROMPT,
+    userMessage: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.`,
+    tool: toAITool(TOOL_PLAN),
+    maxTokens: 6000,
   });
-
-  if (!architectResp.ok) {
-    const t = await architectResp.text();
-    throw new Error(`Architect phase failed (${architectResp.status}): ${t.slice(0, 200)}`);
-  }
-
-  const architectData = await architectResp.json();
-  const planBlock = architectData.content?.find((b: { type: string }) => b.type === "tool_use");
-  if (!planBlock?.input) throw new Error("Claude architect did not return a plan.");
-  const plan = planBlock.input as Record<string, unknown>;
-
-  // Phase 2: Designer
-  enqueue("progress", { phase: "analyzing", message: "[claude] designer — specifying per-screen components & copy…", percent: 22 });
-
-  const designerResp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8000,
-      system: [{ type: "text", text: DESIGNER_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [toAnthropicTool(TOOL_DESIGN.function)],
-      tool_choice: { type: "tool", name: "emit_design_spec" },
-      messages: [{
-        role: "user",
-        content: `Architect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nProduce the per-screen design specification now.`,
-      }],
-    }),
-  });
-
-  let designSpec: Record<string, unknown> | null = null;
-  if (designerResp.ok) {
-    const designerData = await designerResp.json();
-    const designBlock = designerData.content?.find((b: { type: string }) => b.type === "tool_use");
-    if (designBlock?.input) designSpec = designBlock.input;
-  }
-
-  // Phase 3: Engineer
-  enqueue("progress", { phase: "generating", message: "[claude] engineer — writing Swift 6 project…", percent: 38 });
-
-  const planForEngineer = JSON.stringify(plan, null, 2);
-  const designForEngineer = designSpec ? `\n\nDesigner's per-screen spec (implement faithfully):\n\`\`\`json\n${JSON.stringify(designSpec, null, 2)}\n\`\`\`` : "";
-  const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative):\n\`\`\`json\n${planForEngineer}\n\`\`\`${designForEngineer}\n\nShip the complete Xcode project. 24-40 real, complete files. No stubs. Every Swift file ≥ 60 non-whitespace lines.`;
-
-  const engineerResp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-7",
-      max_tokens: 32000,
-      system: [{ type: "text", text: ENGINEER_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [toAnthropicTool(TOOL_PROJECT.function)],
-      tool_choice: { type: "tool", name: "emit_xcode_project" },
-      messages: [{ role: "user", content: engineerUserMsg }],
-    }),
-  });
-
-  if (!engineerResp.ok) {
-    const t = await engineerResp.text();
-    throw new Error(`Engineer phase failed (${engineerResp.status}): ${t.slice(0, 200)}`);
-  }
-
-  const engineerData = await engineerResp.json();
-  const projectBlock = engineerData.content?.find((b: { type: string }) => b.type === "tool_use");
-  if (!projectBlock?.input) throw new Error("Claude did not return a project.");
-  let project = projectBlock.input as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
-
-  // Phase 4: Reviewer
-  enqueue("progress", { phase: "bundling", message: "[claude] reviewer — checking acceptance criteria…", percent: 80 });
-
-  const manifest = buildReviewManifest(project, plan);
-  const reviewerResp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 3000,
-      system: [{ type: "text", text: REVIEWER_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [toAnthropicTool(TOOL_REVIEW.function)],
-      tool_choice: { type: "tool", name: "emit_review" },
-      messages: [{
-        role: "user",
-        content: `Review this generated SwiftUI project:\n\n${manifest}`,
-      }],
-    }),
-  });
-
-  let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
-  if (reviewerResp.ok) {
-    const reviewData = await reviewerResp.json();
-    const reviewBlock = reviewData.content?.find((b: { type: string }) => b.type === "tool_use");
-    if (reviewBlock?.input) review = reviewBlock.input;
-  }
-
-  // Phase 5: Refiner (if blockers found)
-  if (review && !review.approved && review.blockers.length > 0) {
-    enqueue("progress", { phase: "bundling", message: `[claude] refiner — patching ${review.blockers.length} issue(s)…`, percent: 88 });
-
-    const blockerFiles = new Set(review.blockers.map((b) => b.file).filter((f) => f !== "project-level"));
-    const filesToPatch = project.files.filter((f) => blockerFiles.has(f.path));
-    const issueList = review.blockers.map((b) => `• [${b.file}] ${b.issue}\n  Fix: ${b.fix}`).join("\n");
-
-    const refineResp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-opus-4-7",
-        max_tokens: 16000,
-        system: `You are a Principal iOS Engineer fixing specific issues in a generated SwiftUI project. Output ONLY the files that need changes. Each file must be complete. No truncation.`,
-        tools: [toAnthropicTool(TOOL_PATCH.function)],
-        tool_choice: { type: "tool", name: "emit_patches" },
-        messages: [{
-          role: "user",
-          content: `Fix these blocker issues in the project:\n${issueList}\n\nOriginal plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFiles to patch:\n${filesToPatch.map((f) => `### ${f.path}\n\`\`\`swift\n${f.content}\n\`\`\``).join("\n\n")}\n\nReturn only the patched files using emit_patches.`,
-        }],
-      }),
-    });
-
-    if (refineResp.ok) {
-      const refineData = await refineResp.json();
-      const patchBlock = refineData.content?.find((b: { type: string }) => b.type === "tool_use");
-      if (patchBlock?.input?.patches) {
-        const patches = patchBlock.input.patches as { path: string; content: string }[];
-        const patchMap = new Map(patches.map((p) => [p.path, p.content]));
-        project = {
-          ...project,
-          files: project.files.map((f) => patchMap.has(f.path) ? { ...f, content: patchMap.get(f.path)! } : f),
-        };
-      }
-    }
-  }
-
-  return { project, plan, review };
-}
-
-// ─────────────────────────────────────────────────────────────
-// Gemini path (Free/Pro tier)
-// ─────────────────────────────────────────────────────────────
-async function generateWithGemini(
-  prompt: string,
-  lovableKey: string,
-  encoder: TextEncoder,
-  controller: ReadableStreamDefaultController,
-) {
-  const enqueue = (type: string, data: Record<string, unknown>) =>
-    controller.enqueue(encoder.encode(sseEvent(type, data)));
-
-  // Phase 1: Architect
-  enqueue("progress", { phase: "analyzing", message: "[agent] architect — designing app structure & design system…", percent: 10 });
-
-  const planResp = await callGateway({
-    model: "google/gemini-2.5-pro",
-    max_tokens: 6000,
-    messages: [
-      { role: "system", content: ARCHITECT_PROMPT },
-      { role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` },
-    ],
-    tools: [TOOL_PLAN],
-    tool_choice: { type: "function", function: { name: "emit_app_plan" } },
-  }, lovableKey);
-
-  if (!planResp.ok) throw new Error(await gatewayError(planResp));
-
-  const planData = await planResp.json();
-  const planCall = planData?.choices?.[0]?.message?.tool_calls?.[0];
-  if (!planCall?.function?.arguments) throw new Error("Architect did not return a plan.");
-  const plan = JSON.parse(planCall.function.arguments) as Record<string, unknown>;
+  const plan = architect.toolArgs as Record<string, unknown>;
 
   enqueue("progress", { phase: "generating", message: `[plan] ${plan.appName} · ${(plan.screens as unknown[])?.length ?? 0} screens · engineer starting…`, percent: 28 });
 
-  // Phase 2: Engineer
-  const planForEngineer = JSON.stringify(plan, null, 2);
-  const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${planForEngineer}\n\`\`\`\n\nNow ship the complete Xcode project. 24-40 real, complete files. Every Swift file ≥ 60 non-whitespace lines. No stubs. Use the designSystem tokens from the plan in Theme.swift. Use the exact accent color in AccentColor.colorset. Wire every framework listed. Implement every screen. Hit every delight moment and acceptance criterion.`;
-
-  const buildResp = await callGateway({
-    model: "google/gemini-2.5-pro",
-    max_tokens: 32000,
-    messages: [
-      { role: "system", content: ENGINEER_PROMPT },
-      { role: "user", content: engineerUserMsg },
-    ],
-    tools: [TOOL_PROJECT],
-    tool_choice: { type: "function", function: { name: "emit_xcode_project" } },
-  }, lovableKey);
-
-  if (!buildResp.ok) throw new Error(await gatewayError(buildResp));
-
-  const buildData = await buildResp.json();
-  const toolCall = buildData?.choices?.[0]?.message?.tool_calls?.[0];
-  if (!toolCall?.function?.arguments) throw new Error("AI did not return a project.");
-  let project = JSON.parse(toolCall.function.arguments) as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
-
-  // Phase 3: Reviewer
-  enqueue("progress", { phase: "bundling", message: "[agent] reviewer — checking acceptance criteria…", percent: 80 });
-
-  const manifest = buildReviewManifest(project, plan);
-  const reviewResp = await callGateway({
-    model: "google/gemini-2.5-pro",
-    max_tokens: 3000,
-    messages: [
-      { role: "system", content: REVIEWER_PROMPT },
-      { role: "user", content: `Review this generated SwiftUI project:\n\n${manifest}` },
-    ],
-    tools: [TOOL_REVIEW],
-    tool_choice: { type: "function", function: { name: "emit_review" } },
-  }, lovableKey);
-
-  let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
-  if (reviewResp.ok) {
-    const reviewData = await reviewResp.json();
-    const reviewCall = reviewData?.choices?.[0]?.message?.tool_calls?.[0];
-    if (reviewCall?.function?.arguments) {
-      try { review = JSON.parse(reviewCall.function.arguments); } catch { /* non-fatal */ }
-    }
+  // Phase 2: Designer (richer providers only — Gemini already produces a strong plan)
+  let designSpec: Record<string, unknown> | null = null;
+  if (provider !== "gemini") {
+    enqueue("progress", { phase: "analyzing", message: `${tag} designer — specifying per-screen components & copy…`, percent: 22 });
+    try {
+      const designer = await callAI({
+        provider, apiKey, model: models.architect,
+        system: DESIGNER_PROMPT,
+        userMessage: `Architect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nProduce the per-screen design specification now.`,
+        tool: toAITool(TOOL_DESIGN),
+        maxTokens: 8000,
+      });
+      designSpec = designer.toolArgs ?? null;
+    } catch { /* non-fatal */ }
   }
 
-  // Phase 4: Refiner (if blockers found)
-  if (review && !review.approved && review.blockers.length > 0) {
-    enqueue("progress", { phase: "bundling", message: `[agent] refiner — patching ${review.blockers.length} issue(s)…`, percent: 88 });
+  // Phase 3: Engineer
+  enqueue("progress", { phase: "generating", message: `${tag} engineer — writing Swift 6 project…`, percent: 38 });
+  const designForEngineer = designSpec ? `\n\nDesigner's per-screen spec (implement faithfully):\n\`\`\`json\n${JSON.stringify(designSpec, null, 2)}\n\`\`\`` : "";
+  const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`${designForEngineer}\n\nNow ship the complete Xcode project. 24-40 real, complete files. Every Swift file ≥ 60 non-whitespace lines. No stubs. Use the designSystem tokens from the plan in Theme.swift. Use the exact accent color in AccentColor.colorset. Wire every framework listed. Implement every screen. Hit every delight moment and acceptance criterion.`;
+  const engineer = await callAI({
+    provider, apiKey, model: models.engineer,
+    system: ENGINEER_PROMPT,
+    userMessage: engineerUserMsg,
+    tool: toAITool(TOOL_PROJECT),
+    maxTokens: 32000,
+  });
+  let project = engineer.toolArgs as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
 
+  // Phase 4: Reviewer
+  enqueue("progress", { phase: "bundling", message: `${tag} reviewer — checking acceptance criteria…`, percent: 80 });
+  const manifest = buildReviewManifest(project, plan);
+  let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
+  try {
+    const reviewer = await callAI({
+      provider, apiKey, model: models.reviewer,
+      system: REVIEWER_PROMPT,
+      userMessage: `Review this generated SwiftUI project:\n\n${manifest}`,
+      tool: toAITool(TOOL_REVIEW),
+      maxTokens: 3000,
+    });
+    review = reviewer.toolArgs as typeof review;
+  } catch { /* non-fatal */ }
+
+  // Phase 5: Refiner (if blockers found)
+  if (review && !review.approved && review.blockers.length > 0) {
+    enqueue("progress", { phase: "bundling", message: `${tag} refiner — patching ${review.blockers.length} issue(s)…`, percent: 88 });
     const blockerFiles = new Set(review.blockers.map((b) => b.file).filter((f) => f !== "project-level"));
     const filesToPatch = project.files.filter((f) => blockerFiles.has(f.path));
     const issueList = review.blockers.map((b) => `• [${b.file}] ${b.issue}\n  Fix: ${b.fix}`).join("\n");
-
-    const refineResp = await callGateway({
-      model: "google/gemini-2.5-pro",
-      max_tokens: 16000,
-      messages: [
-        { role: "system", content: "You are a Principal iOS Engineer fixing specific issues in a generated SwiftUI project. Return ONLY the files that need changes, complete, no truncation." },
-        {
-          role: "user",
-          content: `Fix these issues:\n${issueList}\n\nPlan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFiles to patch:\n${filesToPatch.map((f) => `### ${f.path}\n\`\`\`swift\n${f.content}\n\`\`\``).join("\n\n")}`,
-        },
-      ],
-      tools: [TOOL_PATCH],
-      tool_choice: { type: "function", function: { name: "emit_patches" } },
-    }, lovableKey);
-
-    if (refineResp.ok) {
-      const refineData = await refineResp.json();
-      const refineCall = refineData?.choices?.[0]?.message?.tool_calls?.[0];
-      if (refineCall?.function?.arguments) {
-        try {
-          const patches = JSON.parse(refineCall.function.arguments).patches as { path: string; content: string }[];
-          const patchMap = new Map(patches.map((p) => [p.path, p.content]));
-          project = {
-            ...project,
-            files: project.files.map((f) => patchMap.has(f.path) ? { ...f, content: patchMap.get(f.path)! } : f),
-          };
-        } catch { /* non-fatal */ }
-      }
-    }
+    try {
+      const refiner = await callAI({
+        provider, apiKey, model: models.engineer,
+        system: "You are a Principal iOS Engineer fixing specific issues in a generated SwiftUI project. Output ONLY the files that need changes. Each file must be complete. No truncation.",
+        userMessage: `Fix these blocker issues in the project:\n${issueList}\n\nOriginal plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFiles to patch:\n${filesToPatch.map((f) => `### ${f.path}\n\`\`\`swift\n${f.content}\n\`\`\``).join("\n\n")}\n\nReturn only the patched files using emit_patches.`,
+        tool: toAITool(TOOL_PATCH),
+        maxTokens: 16000,
+      });
+      const patches = ((refiner.toolArgs?.patches ?? []) as { path: string; content: string }[]);
+      const patchMap = new Map(patches.map((p) => [p.path, p.content]));
+      project = {
+        ...project,
+        files: project.files.map((f) => patchMap.has(f.path) ? { ...f, content: patchMap.get(f.path)! } : f),
+      };
+    } catch { /* non-fatal */ }
   }
 
   return { project, plan, review };
@@ -824,8 +594,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -857,7 +625,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  let body: { prompt?: string; model?: string };
+  let body: { prompt?: string; provider?: Provider };
   try {
     body = await req.json();
   } catch {
@@ -867,7 +635,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { prompt, model = "gemini-pro" } = body;
+  const { prompt, provider = "gemini" } = body;
   if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
     return new Response(
       JSON.stringify({ error: "Please describe the app you want to build (min 5 chars)." }),
@@ -875,30 +643,37 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  if (model === "claude-opus" && userPlan !== "studio") {
+  if (!["gemini", "anthropic", "opencode"].includes(provider)) {
     return new Response(
-      JSON.stringify({ error: "Claude Opus is available on the Studio plan. Upgrade at /pricing." }),
+      JSON.stringify({ error: `Unknown provider "${provider}". Use gemini, anthropic, or opencode.` }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  if (provider !== "gemini" && userPlan !== "studio") {
+    return new Response(
+      JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
+  const apiKey = getApiKey(provider);
+  if (!apiKey) {
+    return new Response(
+      JSON.stringify({ error: `${provider} API key not configured on the server. Set ${provider === "gemini" ? "GEMINI_API_KEY" : provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENCODE_API_KEY"} in Supabase function secrets.` }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
   const encoder = new TextEncoder();
+  const modelUsed = DEFAULT_MODELS[provider].engineer;
+  const costEstimate = provider === "anthropic" ? 0.25 : provider === "opencode" ? 0.20 : 0.10;
   const stream = new ReadableStream({
     async start(controller) {
       try {
         controller.enqueue(encoder.encode(sseEvent("progress", { phase: "analyzing", message: "> prompt received — initializing pipeline…", percent: 5 })));
 
-        let project: unknown;
-        let plan: unknown;
-        let review: unknown;
-        const modelUsed = model === "claude-opus" ? "claude-opus-4-7" : "gemini-2.5-pro";
-
-        if (model === "claude-opus" && ANTHROPIC_API_KEY) {
-          ({ project, plan, review } = await generateWithClaude(prompt, ANTHROPIC_API_KEY, encoder, controller));
-        } else {
-          if (!LOVABLE_API_KEY) throw new Error("AI gateway not configured.");
-          ({ project, plan, review } = await generateWithGemini(prompt, LOVABLE_API_KEY, encoder, controller));
-        }
+        const { project, plan, review } = await generate(prompt, provider, apiKey, encoder, controller);
 
         controller.enqueue(encoder.encode(sseEvent("progress", { phase: "bundling", message: "[bundler] validating project structure…", percent: 93 })));
 
@@ -907,7 +682,7 @@ Deno.serve(async (req: Request) => {
 
         const p = project as Record<string, unknown>;
         p.plan = plan;
-        p.reviewScore = (review as { score?: number })?.score;
+        p.reviewScore = (review as { score?: number } | null)?.score;
 
         if (userId) {
           const proj = project as { appName?: string; bundleId?: string; summary?: string; files?: unknown[] };
@@ -921,14 +696,16 @@ Deno.serve(async (req: Request) => {
             files_count: proj.files?.length ?? 0,
             status: "success",
             model_used: modelUsed,
-            cost_usd: model === "claude-opus" ? 0.25 : 0.10,
+            cost_usd: costEstimate,
           });
         }
 
         controller.enqueue(encoder.encode(sseEvent("progress", { phase: "done", message: "[done] project ready", percent: 100 })));
         controller.enqueue(encoder.encode(sseEvent("result", { project })));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
+        const msg = err instanceof AIError
+          ? err.message
+          : err instanceof Error ? err.message : "Unknown error";
         const stack = err instanceof Error ? err.stack : "";
         console.error("generate-ios-app error:", msg, stack);
 
@@ -937,7 +714,7 @@ Deno.serve(async (req: Request) => {
             user_id: userId,
             prompt,
             status: "failed",
-            model_used: model === "claude-opus" ? "claude-opus-4-7" : "gemini-2.5-pro",
+            model_used: modelUsed,
           });
         }
 

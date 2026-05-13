@@ -4,6 +4,7 @@
 // Available to Pro+ users only.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { callAI, AIError, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,7 +31,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
@@ -62,15 +62,17 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { filePath, currentContent, prompt, appContext, instruction } = await req.json();
+  const { filePath, currentContent, prompt, appContext, instruction, provider: rawProvider } = await req.json();
   if (!filePath || !currentContent) {
     return new Response(JSON.stringify({ error: "filePath and currentContent are required" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  if (!LOVABLE_API_KEY) {
-    return new Response(JSON.stringify({ error: "AI gateway not configured" }), {
+  const provider: Provider = ["gemini", "anthropic", "opencode"].includes(rawProvider) ? rawProvider : "gemini";
+  const apiKey = getApiKey(provider);
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: `${provider} API key not configured on the server.` }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -89,29 +91,15 @@ ${currentContent}
 Return the complete improved file content now (no markdown, no explanation):`;
 
   try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        max_tokens: 8000,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-      }),
+    const result = await callAI({
+      provider,
+      apiKey,
+      model: DEFAULT_MODELS[provider].engineer,
+      system: SYSTEM_PROMPT,
+      userMessage,
+      maxTokens: 8000,
     });
-
-    if (!resp.ok) {
-      const t = await resp.text();
-      throw new Error(`AI call failed (${resp.status}): ${t.slice(0, 200)}`);
-    }
-
-    const data = await resp.json();
-    const content = data?.choices?.[0]?.message?.content;
+    const content = result.text;
     if (!content) throw new Error("AI returned empty content");
 
     // Strip any accidental markdown fences
@@ -122,9 +110,11 @@ Return the complete improved file content now (no markdown, no explanation):`;
     });
   } catch (err) {
     console.error("regenerate-file error:", err);
+    const msg = err instanceof AIError ? err.message : err instanceof Error ? err.message : "Unknown error";
+    const status = err instanceof AIError && err.status >= 400 && err.status < 600 ? err.status : 500;
     return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ error: msg }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

@@ -556,15 +556,20 @@ export default function Generator() {
         headers: {
           "Content-Type": "application/json",
           "apikey": supabaseKey,
-          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
         },
         body: JSON.stringify({ prompt, model }),
       });
 
       if (!resp.ok || !resp.body) {
         const errText = await resp.text().catch(() => "");
-        let errMsg = "Generation failed";
-        try { errMsg = JSON.parse(errText).error ?? errMsg; } catch { /* */ }
+        let errMsg = `Generation failed (${resp.status})`;
+        try {
+          const j = JSON.parse(errText);
+          errMsg = j.error ?? j.message ?? (j.code ? `${j.code}: ${j.message ?? ""}`.trim() : null) ?? errMsg;
+        } catch {
+          if (errText) errMsg = errText.slice(0, 200);
+        }
         throw new Error(errMsg);
       }
 

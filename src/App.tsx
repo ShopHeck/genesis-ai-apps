@@ -8,6 +8,7 @@ import NotFound from "./pages/NotFound.tsx";
 import Generator from "./pages/Generator.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Pricing from "./pages/Pricing.tsx";
+import { AuthHandler } from "./components/AuthHandler.tsx";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +18,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <AuthHandler />
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/generator" element={<Generator />} />

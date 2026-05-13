@@ -446,6 +446,11 @@ function gatewayError(status: number): string {
   return "AI generation failed.";
 }
 
+// Anthropic requires "input_schema" where OpenAI uses "parameters".
+function toAnthropicTool(t: { name: string; description: string; parameters: unknown }) {
+  return { name: t.name, description: t.description, input_schema: t.parameters };
+}
+
 // ─────────────────────────────────────────────────────────────
 // Server-side project validation
 // ─────────────────────────────────────────────────────────────
@@ -526,10 +531,10 @@ async function generateWithClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-6",
       max_tokens: 6000,
       system: [{ type: "text", text: ARCHITECT_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [TOOL_PLAN.function],
+      tools: [toAnthropicTool(TOOL_PLAN.function)],
       tool_choice: { type: "tool", name: "emit_app_plan" },
       messages: [{ role: "user", content: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.` }],
     }),
@@ -557,10 +562,10 @@ async function generateWithClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-6",
       max_tokens: 8000,
       system: [{ type: "text", text: DESIGNER_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [TOOL_DESIGN.function],
+      tools: [toAnthropicTool(TOOL_DESIGN.function)],
       tool_choice: { type: "tool", name: "emit_design_spec" },
       messages: [{
         role: "user",
@@ -595,7 +600,7 @@ async function generateWithClaude(
       model: "claude-opus-4-7",
       max_tokens: 32000,
       system: [{ type: "text", text: ENGINEER_PROMPT, cache_control: { type: "ephemeral" } }],
-      tools: [TOOL_PROJECT.function],
+      tools: [toAnthropicTool(TOOL_PROJECT.function)],
       tool_choice: { type: "tool", name: "emit_xcode_project" },
       messages: [{ role: "user", content: engineerUserMsg }],
     }),
@@ -620,13 +625,14 @@ async function generateWithClaude(
     headers: {
       "x-api-key": anthropicKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 3000,
-      system: REVIEWER_PROMPT,
-      tools: [TOOL_REVIEW.function],
+      system: [{ type: "text", text: REVIEWER_PROMPT, cache_control: { type: "ephemeral" } }],
+      tools: [toAnthropicTool(TOOL_REVIEW.function)],
       tool_choice: { type: "tool", name: "emit_review" },
       messages: [{
         role: "user",
@@ -661,7 +667,7 @@ async function generateWithClaude(
         model: "claude-opus-4-7",
         max_tokens: 16000,
         system: `You are a Principal iOS Engineer fixing specific issues in a generated SwiftUI project. Output ONLY the files that need changes. Each file must be complete. No truncation.`,
-        tools: [TOOL_PATCH.function],
+        tools: [toAnthropicTool(TOOL_PATCH.function)],
         tool_choice: { type: "tool", name: "emit_patches" },
         messages: [{
           role: "user",
@@ -914,7 +920,7 @@ Deno.serve(async (req: Request) => {
             files_count: proj.files?.length ?? 0,
             status: "success",
             model_used: modelUsed,
-            cost_usd: model === "claude-opus" ? 0.18 : 0.10,
+            cost_usd: model === "claude-opus" ? 0.25 : 0.10,
           });
         }
 

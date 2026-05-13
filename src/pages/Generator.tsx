@@ -446,7 +446,7 @@ const STAGE_SCRIPT: Record<Exclude<Stage, "idle" | "error" | "done">, { kind: Lo
 export default function Generator() {
   const { user, plan, monthlyUsage } = useAuth();
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState<"gemini-pro" | "claude-opus">("gemini-pro");
+  const [provider, setProvider] = useState<"gemini" | "anthropic" | "opencode">("gemini");
   const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -558,7 +558,7 @@ export default function Generator() {
           "apikey": supabaseKey,
           Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
         },
-        body: JSON.stringify({ prompt, model }),
+        body: JSON.stringify({ prompt, provider }),
       });
 
       if (!resp.ok || !resp.body) {
@@ -663,6 +663,7 @@ export default function Generator() {
           currentContent,
           prompt: lastPromptUsed,
           appContext: { appName: project.appName, summary: project.summary },
+          provider,
         },
       });
       if (fnErr) throw new Error(fnErr.message);
@@ -900,25 +901,35 @@ export default function Generator() {
           <div className="flex items-center justify-between mt-6 gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Wand2 size={12} /> Powered by Gemini 2.5 Pro
+                <Wand2 size={12} /> Powered by{" "}
+                {provider === "gemini" ? "Gemini 2.5 Pro" : provider === "anthropic" ? "Claude Opus 4.7" : "Opencode Zen"}
               </p>
-              {plan === "studio" && (
-                <div className="flex items-center gap-1.5 bg-card/60 border border-border/60 rounded-lg px-2 py-1">
-                  <span className="text-xs text-muted-foreground">Model:</span>
-                  <button
-                    onClick={() => setModel("gemini-pro")}
-                    className={`text-xs px-2 py-0.5 rounded transition-colors ${model === "gemini-pro" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    Gemini
-                  </button>
-                  <button
-                    onClick={() => setModel("claude-opus")}
-                    className={`text-xs px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${model === "claude-opus" ? "bg-violet-500/20 text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    <Crown size={10} /> Claude
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-1.5 bg-card/60 border border-border/60 rounded-lg px-2 py-1">
+                <span className="text-xs text-muted-foreground">Provider:</span>
+                <button
+                  onClick={() => setProvider("gemini")}
+                  className={`text-xs px-2 py-0.5 rounded transition-colors ${provider === "gemini" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Gemini
+                </button>
+                {plan === "studio" && (
+                  <>
+                    <button
+                      onClick={() => setProvider("anthropic")}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${provider === "anthropic" ? "bg-violet-500/20 text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <Crown size={10} /> Claude
+                    </button>
+                    <button
+                      onClick={() => setProvider("opencode")}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${provider === "opencode" ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <Crown size={10} /> Opencode
+                    </button>
+                  </>
+                )}
+              </div>
+
               {user && planLimit !== Infinity && (
                 <span className={`text-xs ${monthlyUsage >= planLimit ? "text-destructive" : "text-muted-foreground"}`}>
                   {monthlyUsage}/{planLimit} builds this month

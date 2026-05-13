@@ -4,6 +4,8 @@
 // The preview is responsive: it adapts its layout to the viewport width so the
 // frontend can display it in Mobile / Tablet / Desktop device frames.
 
+import { callAI, AIError, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -97,9 +99,13 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "AI gateway not configured" }), {
+    // This endpoint runs with verify_jwt=false (anonymous-callable). To prevent
+    // unauthenticated callers from forcing premium-provider spend, the preview
+    // always uses Gemini regardless of any provider hint in the request body.
+    const provider: Provider = "gemini";
+    const apiKey = getApiKey(provider);
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: `${provider} API key not configured on the server.` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -152,47 +158,28 @@ Requirements:
 - The app must look alive on first render with seed data visible
 - Return ONLY the raw HTML starting with <!DOCTYPE html>`;
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        max_tokens: 32000,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-      }),
-    });
-
-    if (!aiResp.ok) {
-      const text = await aiResp.text();
-      console.error("AI gateway error", aiResp.status, text);
-      if (aiResp.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit reached. Please wait and try again." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (aiResp.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ error: "Preview generation failed." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    let result;
+    try {
+      result = await callAI({
+        provider,
+        apiKey,
+        model: DEFAULT_MODELS[provider].engineer,
+        system: SYSTEM_PROMPT,
+        userMessage,
+        maxTokens: 32000,
       });
+    } catch (e) {
+      if (e instanceof AIError) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: e.status >= 400 && e.status < 600 ? e.status : 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw e;
     }
 
-    const data = await aiResp.json();
-    let html: string = data?.choices?.[0]?.message?.content ?? "";
+    let html = result.text ?? "";
     if (!html) {
-      console.error("Empty AI content", JSON.stringify(data).slice(0, 500));
       return new Response(JSON.stringify({ error: "AI did not return a preview." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

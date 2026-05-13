@@ -1,1 +1,7 @@
-project_id = "kckcgugfrtqmfkmdinij"
+project_id = "yntpprkrsuwiaogccirh"
+
+[functions.generate-ios-app]
+verify_jwt = false
+
+[functions.generate-app-preview]
+verify_jwt = false

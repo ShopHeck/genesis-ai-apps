@@ -440,10 +440,11 @@ async function callGateway(body: unknown, apiKey: string) {
   });
 }
 
-function gatewayError(status: number): string {
-  if (status === 429) return "Rate limit reached. Please wait a moment and try again.";
-  if (status === 402) return "AI credits exhausted. Add credits in Lovable workspace settings.";
-  return "AI generation failed.";
+async function gatewayError(resp: Response): Promise<string> {
+  if (resp.status === 429) return "Rate limit reached. Please wait a moment and try again.";
+  if (resp.status === 402) return "AI credits exhausted. Add credits in Lovable workspace settings.";
+  const body = await resp.text().catch(() => "");
+  return `AI gateway error (${resp.status}): ${body.slice(0, 300) || "(empty body)"}`;
 }
 
 // Anthropic requires "input_schema" where OpenAI uses "parameters".
@@ -709,7 +710,7 @@ async function generateWithGemini(
   enqueue("progress", { phase: "analyzing", message: "[agent] architect — designing app structure & design system…", percent: 10 });
 
   const planResp = await callGateway({
-    model: "google/gemini-2.5-flash",
+    model: "google/gemini-2.5-pro",
     max_tokens: 6000,
     messages: [
       { role: "system", content: ARCHITECT_PROMPT },
@@ -719,7 +720,7 @@ async function generateWithGemini(
     tool_choice: { type: "function", function: { name: "emit_app_plan" } },
   }, lovableKey);
 
-  if (!planResp.ok) throw new Error(gatewayError(planResp.status));
+  if (!planResp.ok) throw new Error(await gatewayError(planResp));
 
   const planData = await planResp.json();
   const planCall = planData?.choices?.[0]?.message?.tool_calls?.[0];
@@ -743,7 +744,7 @@ async function generateWithGemini(
     tool_choice: { type: "function", function: { name: "emit_xcode_project" } },
   }, lovableKey);
 
-  if (!buildResp.ok) throw new Error(gatewayError(buildResp.status));
+  if (!buildResp.ok) throw new Error(await gatewayError(buildResp));
 
   const buildData = await buildResp.json();
   const toolCall = buildData?.choices?.[0]?.message?.tool_calls?.[0];
@@ -755,7 +756,7 @@ async function generateWithGemini(
 
   const manifest = buildReviewManifest(project, plan);
   const reviewResp = await callGateway({
-    model: "google/gemini-2.5-flash",
+    model: "google/gemini-2.5-pro",
     max_tokens: 3000,
     messages: [
       { role: "system", content: REVIEWER_PROMPT },
@@ -928,7 +929,8 @@ Deno.serve(async (req: Request) => {
         controller.enqueue(encoder.encode(sseEvent("result", { project })));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        console.error("generate-ios-app error:", msg);
+        const stack = err instanceof Error ? err.stack : "";
+        console.error("generate-ios-app error:", msg, stack);
 
         if (userId) {
           await adminSupabase.from("generations").insert({

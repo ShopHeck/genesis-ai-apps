@@ -707,7 +707,6 @@ export default function Generator() {
           appName: project.appName,
           summary: project.summary,
           plan: project.plan ?? null,
-          provider,
         },
       });
       if (fnErr) throw new Error(fnErr.message);

@@ -70,6 +70,14 @@ Deno.serve(async (req: Request) => {
   }
 
   const provider: Provider = ["gemini", "anthropic", "opencode"].includes(rawProvider) ? rawProvider : "gemini";
+  // Premium providers are Studio-only — mirror the gate in generate-ios-app
+  // so Pro users can't force anthropic/opencode and bypass tier monetization.
+  if (provider !== "gemini" && plan !== "studio") {
+    return new Response(
+      JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
   const apiKey = getApiKey(provider);
   if (!apiKey) {
     return new Response(JSON.stringify({ error: `${provider} API key not configured on the server.` }), {

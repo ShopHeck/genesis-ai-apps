@@ -91,7 +91,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, appName, summary, plan, provider: rawProvider } = await req.json();
+    const { prompt, appName, summary, plan } = await req.json();
     if (!prompt) {
       return new Response(JSON.stringify({ error: "Missing prompt" }), {
         status: 400,
@@ -99,7 +99,10 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const provider: Provider = ["gemini", "anthropic", "opencode"].includes(rawProvider) ? rawProvider : "gemini";
+    // This endpoint runs with verify_jwt=false (anonymous-callable). To prevent
+    // unauthenticated callers from forcing premium-provider spend, the preview
+    // always uses Gemini regardless of any provider hint in the request body.
+    const provider: Provider = "gemini";
     const apiKey = getApiKey(provider);
     if (!apiKey) {
       return new Response(JSON.stringify({ error: `${provider} API key not configured on the server.` }), {

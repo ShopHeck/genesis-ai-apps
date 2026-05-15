@@ -53,6 +53,7 @@ export default function Dashboard() {
     } else if (user) {
       fetchGenerations();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading]);
 
   async function fetchGenerations() {
@@ -66,7 +67,7 @@ export default function Dashboard() {
         .limit(50);
       if (error) throw error;
       setGenerations((data as GenerationRecord[]) ?? []);
-    } catch (err) {
+    } catch {
       toast.error("Failed to load projects");
     } finally {
       setLoadingData(false);

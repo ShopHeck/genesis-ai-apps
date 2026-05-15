@@ -183,13 +183,16 @@ export default function Generator() {
             const phase = event.phase as string;
             const message = event.message as string;
             const percent = event.percent as number;
+            const isRetry = phase === "retrying";
             pushLog(
-              phase === "done" ? "success" : phase === "error" ? "error" : "thought",
+              phase === "done" ? "success" : isRetry ? "warning" : phase === "error" ? "error" : "thought",
               message ?? phase
             );
-            if (percent >= 85) setStage("bundling");
-            else if (percent >= 30) setStage("generating");
-            else setStage("analyzing");
+            if (!isRetry && percent >= 0) {
+              if (percent >= 85) setStage("bundling");
+              else if (percent >= 30) setStage("generating");
+              else setStage("analyzing");
+            }
           } else if (event.type === "result") {
             const data = event.project as Project & { plan?: unknown };
             if (!data?.files?.length) throw new Error("Empty project returned.");
@@ -677,7 +680,9 @@ export default function Generator() {
                             ? "text-primary"
                             : l.kind === "success"
                               ? "text-emerald-400"
-                              : "text-destructive";
+                              : l.kind === "warning"
+                                ? "text-amber-400"
+                                : "text-destructive";
                     const time = new Date(l.ts).toLocaleTimeString([], {
                       hour12: false,
                       minute: "2-digit",
@@ -707,10 +712,17 @@ export default function Generator() {
         {/* Error */}
         {error && !loading && (
           <div className="glass-panel border-destructive/40 p-6 flex items-start gap-3">
-            <AlertTriangle className="text-destructive shrink-0" size={20} />
-            <div>
+            <AlertTriangle className="text-destructive shrink-0 mt-0.5" size={20} />
+            <div className="flex-1">
               <p className="font-medium text-foreground">Generation failed</p>
-              <p className="text-sm text-muted-foreground">{error}</p>
+              <p className="text-sm text-muted-foreground mt-1">{error}</p>
+              <button
+                onClick={handleGenerate}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+              >
+                <RotateCcw size={14} />
+                Try again
+              </button>
             </div>
           </div>
         )}

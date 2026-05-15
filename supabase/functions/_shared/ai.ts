@@ -5,6 +5,7 @@
 //   - "opencode"  → Opencode Zen      (opencode.ai/zen/v1)  [OpenAI-compatible]
 //
 // All three return a normalized AIResult so callers don't branch on provider.
+// Built-in retry with exponential backoff, per-request timeout, and fallback models.
 
 export type Provider = "gemini" | "anthropic" | "opencode";
 
@@ -22,6 +23,10 @@ export interface AICallOptions {
   userMessage: string;
   tool?: AITool;       // when present, the model MUST call this tool
   maxTokens?: number;
+  maxRetries?: number;         // default 3
+  initialRetryDelayMs?: number; // default 2000
+  timeoutMs?: number;           // default 120_000 (2 min)
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: AIError) => void;
 }
 
 export interface AIResult {
@@ -32,18 +37,67 @@ export interface AIResult {
 export class AIError extends Error {
   status: number;
   provider: Provider;
+  retryable: boolean;
   constructor(provider: Provider, status: number, message: string) {
     super(`[${provider}] ${status}: ${message}`);
     this.provider = provider;
     this.status = status;
+    this.retryable = RETRYABLE_STATUSES.has(status);
   }
 }
 
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function jitter(ms: number): number {
+  return ms + Math.random() * ms * 0.3;
+}
+
 export async function callAI(opts: AICallOptions): Promise<AIResult> {
-  switch (opts.provider) {
-    case "gemini":    return callGemini(opts);
-    case "anthropic": return callAnthropic(opts);
-    case "opencode":  return callOpencode(opts);
+  const maxRetries = opts.maxRetries ?? 3;
+  const initialDelay = opts.initialRetryDelayMs ?? 2000;
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+
+  let lastError: AIError | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0 && lastError) {
+      const delay = jitter(initialDelay * Math.pow(2, attempt - 1));
+      opts.onRetry?.(attempt, maxRetries, delay, lastError);
+      await sleep(delay);
+    }
+    try {
+      const result = await withTimeout(timeoutMs, () => {
+        switch (opts.provider) {
+          case "gemini":    return callGemini(opts);
+          case "anthropic": return callAnthropic(opts);
+          case "opencode":  return callOpencode(opts);
+        }
+      });
+      return result;
+    } catch (err) {
+      if (err instanceof AIError && err.retryable && attempt < maxRetries) {
+        lastError = err;
+        continue;
+      }
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new AIError(opts.provider, 408, `Request timed out after ${timeoutMs / 1000}s`);
+      }
+      throw err;
+    }
+  }
+  throw lastError ?? new AIError(opts.provider, 500, "All retries exhausted");
+}
+
+async function withTimeout<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -68,7 +122,8 @@ async function callGemini(opts: AICallOptions): Promise<AIResult> {
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
-    throw new AIError("gemini", resp.status, (await resp.text()).slice(0, 400));
+    const raw = (await resp.text()).slice(0, 400);
+    throw new AIError("gemini", resp.status, parseProviderError("gemini", resp.status, raw));
   }
   const data = await resp.json();
   const parts: { text?: string; functionCall?: { name: string; args: Record<string, unknown> } }[] =
@@ -134,7 +189,8 @@ async function callAnthropic(opts: AICallOptions): Promise<AIResult> {
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
-    throw new AIError("anthropic", resp.status, (await resp.text()).slice(0, 400));
+    const raw = (await resp.text()).slice(0, 400);
+    throw new AIError("anthropic", resp.status, parseProviderError("anthropic", resp.status, raw));
   }
   const data = await resp.json();
   const content: { type: string; text?: string; input?: Record<string, unknown> }[] = data?.content ?? [];
@@ -180,7 +236,8 @@ async function callOpencode(opts: AICallOptions): Promise<AIResult> {
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
-    throw new AIError("opencode", resp.status, (await resp.text()).slice(0, 400));
+    const raw = (await resp.text()).slice(0, 400);
+    throw new AIError("opencode", resp.status, parseProviderError("opencode", resp.status, raw));
   }
   const data = await resp.json();
   const msg = data?.choices?.[0]?.message;
@@ -219,10 +276,52 @@ export const DEFAULT_MODELS: Record<Provider, { architect: string; engineer: str
   },
 };
 
+// Fallback models used when the primary model is overloaded or unavailable.
+export const FALLBACK_MODELS: Record<Provider, { architect: string; engineer: string; reviewer: string }> = {
+  gemini: {
+    architect: "gemini-2.5-flash",
+    engineer:  "gemini-2.5-flash",
+    reviewer:  "gemini-2.0-flash",
+  },
+  anthropic: {
+    architect: "claude-haiku-4-5-20251001",
+    engineer:  "claude-sonnet-4-6",
+    reviewer:  "claude-haiku-4-5-20251001",
+  },
+  opencode: {
+    architect: "opencode/claude-haiku-4-5",
+    engineer:  "opencode/claude-sonnet-4-6",
+    reviewer:  "opencode/claude-haiku-4-5",
+  },
+};
+
 export function getApiKey(provider: Provider): string | undefined {
   switch (provider) {
     case "gemini":    return Deno.env.get("GEMINI_API_KEY");
     case "anthropic": return Deno.env.get("ANTHROPIC_API_KEY");
     case "opencode":  return Deno.env.get("OPENCODE_API_KEY");
   }
+}
+
+// ─── User-friendly error messages ────────────────────────────────────────
+const FRIENDLY_ERRORS: Record<number, string> = {
+  429: "AI model rate-limited — retrying with backoff.",
+  500: "AI provider internal error — retrying.",
+  502: "AI provider temporarily unreachable — retrying.",
+  503: "AI model under high demand — retrying with a lighter model.",
+  504: "AI provider response timed out — retrying.",
+  408: "Request timed out. Try a simpler prompt or try again later.",
+};
+
+export function friendlyError(status: number, raw: string): string {
+  return FRIENDLY_ERRORS[status] ?? raw;
+}
+
+function parseProviderError(_provider: Provider, status: number, raw: string): string {
+  try {
+    const j = JSON.parse(raw);
+    const msg = j?.error?.message ?? j?.error?.status ?? j?.message ?? "";
+    if (msg) return `${FRIENDLY_ERRORS[status] ?? ""} ${msg}`.trim();
+  } catch { /* not JSON */ }
+  return FRIENDLY_ERRORS[status] ?? raw;
 }

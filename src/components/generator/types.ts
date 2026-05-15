@@ -22,5 +22,5 @@ export type PromptTemplate = {
 
 export type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";
 
-export type LogKind = "system" | "thought" | "action" | "success" | "error";
+export type LogKind = "system" | "thought" | "action" | "success" | "error" | "warning";
 export type LogLine = { id: number; ts: number; kind: LogKind; text: string };

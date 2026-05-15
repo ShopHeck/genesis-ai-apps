@@ -9,7 +9,7 @@
 // Enforces per-user monthly quotas based on subscription plan.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { callAI, AIError, AITool, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
+import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -432,6 +432,21 @@ function toAITool(t: { function: { name: string; description: string; parameters
   return t.function;
 }
 
+function formatUserError(err: unknown): string {
+  if (err instanceof AIError) {
+    if (err.status === 503) return "The AI model is experiencing high demand. All retry attempts and fallback models were exhausted. Please try again in a few minutes.";
+    if (err.status === 429) return "Rate limited by the AI provider. Please wait a moment and try again.";
+    if (err.status === 408) return "The request timed out. Try a simpler app description, or try again later.";
+    if (err.status === 500 || err.status === 502 || err.status === 504) return "The AI provider encountered a temporary issue. Please try again.";
+  }
+  if (err instanceof Error) {
+    if (err.message.includes("incomplete project")) return err.message;
+    if (err.message.includes("Missing required file")) return err.message;
+    return `Generation failed: ${err.message}`;
+  }
+  return "An unexpected error occurred. Please try again.";
+}
+
 // ─────────────────────────────────────────────────────────────
 // Server-side project validation
 // ─────────────────────────────────────────────────────────────
@@ -489,6 +504,37 @@ function buildReviewManifest(project: { files: { path: string; content: string }
 }
 
 // ─────────────────────────────────────────────────────────────
+// callWithFallback: tries primary model, falls back to lighter model
+// ─────────────────────────────────────────────────────────────
+async function callWithFallback(
+  opts: AICallOptions,
+  fallbackModel: string,
+  enqueue: (type: string, data: Record<string, unknown>) => void,
+  phaseName: string,
+): Promise<ReturnType<typeof callAI>> {
+  const retryCallback = (attempt: number, max: number, delayMs: number, err: AIError) => {
+    enqueue("progress", {
+      phase: "retrying",
+      message: `⚠ ${phaseName}: ${err.status} — retry ${attempt}/${max} in ${(delayMs / 1000).toFixed(1)}s…`,
+      percent: -1,
+    });
+  };
+  try {
+    return await callAI({ ...opts, onRetry: retryCallback });
+  } catch (err) {
+    if (err instanceof AIError && err.retryable && fallbackModel !== opts.model) {
+      enqueue("progress", {
+        phase: "retrying",
+        message: `↻ ${phaseName}: switching to fallback model (${fallbackModel})…`,
+        percent: -1,
+      });
+      return await callAI({ ...opts, model: fallbackModel, maxRetries: 2, onRetry: retryCallback });
+    }
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Generation pipeline (provider-agnostic)
 // ─────────────────────────────────────────────────────────────
 async function generate(
@@ -501,17 +547,18 @@ async function generate(
   const enqueue = (type: string, data: Record<string, unknown>) =>
     controller.enqueue(encoder.encode(sseEvent(type, data)));
   const models = DEFAULT_MODELS[provider];
+  const fallbacks = FALLBACK_MODELS[provider];
   const tag = `[${provider}]`;
 
   // Phase 1: Architect
   enqueue("progress", { phase: "analyzing", message: `${tag} architect — designing app structure & design system…`, percent: 10 });
-  const architect = await callAI({
+  const architect = await callWithFallback({
     provider, apiKey, model: models.architect,
     system: ARCHITECT_PROMPT,
     userMessage: `App idea:\n"""\n${prompt}\n"""\n\nProduce the plan now.`,
     tool: toAITool(TOOL_PLAN),
     maxTokens: 6000,
-  });
+  }, fallbacks.architect, enqueue, "Architect");
   const plan = architect.toolArgs as Record<string, unknown>;
 
   enqueue("progress", { phase: "generating", message: `[plan] ${plan.appName} · ${(plan.screens as unknown[])?.length ?? 0} screens · engineer starting…`, percent: 28 });
@@ -521,13 +568,13 @@ async function generate(
   if (provider !== "gemini") {
     enqueue("progress", { phase: "analyzing", message: `${tag} designer — specifying per-screen components & copy…`, percent: 22 });
     try {
-      const designer = await callAI({
+      const designer = await callWithFallback({
         provider, apiKey, model: models.architect,
         system: DESIGNER_PROMPT,
         userMessage: `Architect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nProduce the per-screen design specification now.`,
         tool: toAITool(TOOL_DESIGN),
         maxTokens: 8000,
-      });
+      }, fallbacks.architect, enqueue, "Designer");
       designSpec = designer.toolArgs ?? null;
     } catch { /* non-fatal */ }
   }
@@ -536,13 +583,14 @@ async function generate(
   enqueue("progress", { phase: "generating", message: `${tag} engineer — writing Swift 6 project…`, percent: 38 });
   const designForEngineer = designSpec ? `\n\nDesigner's per-screen spec (implement faithfully):\n\`\`\`json\n${JSON.stringify(designSpec, null, 2)}\n\`\`\`` : "";
   const engineerUserMsg = `Original user idea:\n"""\n${prompt}\n"""\n\nArchitect's plan (authoritative — implement faithfully):\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`${designForEngineer}\n\nNow ship the complete Xcode project. 24-40 real, complete files. Every Swift file ≥ 60 non-whitespace lines. No stubs. Use the designSystem tokens from the plan in Theme.swift. Use the exact accent color in AccentColor.colorset. Wire every framework listed. Implement every screen. Hit every delight moment and acceptance criterion.`;
-  const engineer = await callAI({
+  const engineer = await callWithFallback({
     provider, apiKey, model: models.engineer,
     system: ENGINEER_PROMPT,
     userMessage: engineerUserMsg,
     tool: toAITool(TOOL_PROJECT),
     maxTokens: 32000,
-  });
+    timeoutMs: 180_000,
+  }, fallbacks.engineer, enqueue, "Engineer");
   let project = engineer.toolArgs as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
 
   // Phase 4: Reviewer
@@ -550,13 +598,13 @@ async function generate(
   const manifest = buildReviewManifest(project, plan);
   let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
   try {
-    const reviewer = await callAI({
+    const reviewer = await callWithFallback({
       provider, apiKey, model: models.reviewer,
       system: REVIEWER_PROMPT,
       userMessage: `Review this generated SwiftUI project:\n\n${manifest}`,
       tool: toAITool(TOOL_REVIEW),
       maxTokens: 3000,
-    });
+    }, fallbacks.reviewer, enqueue, "Reviewer");
     review = reviewer.toolArgs as typeof review;
   } catch { /* non-fatal */ }
 
@@ -567,13 +615,13 @@ async function generate(
     const filesToPatch = project.files.filter((f) => blockerFiles.has(f.path));
     const issueList = review.blockers.map((b) => `• [${b.file}] ${b.issue}\n  Fix: ${b.fix}`).join("\n");
     try {
-      const refiner = await callAI({
+      const refiner = await callWithFallback({
         provider, apiKey, model: models.engineer,
         system: "You are a Principal iOS Engineer fixing specific issues in a generated SwiftUI project. Output ONLY the files that need changes. Each file must be complete. No truncation.",
         userMessage: `Fix these blocker issues in the project:\n${issueList}\n\nOriginal plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFiles to patch:\n${filesToPatch.map((f) => `### ${f.path}\n\`\`\`swift\n${f.content}\n\`\`\``).join("\n\n")}\n\nReturn only the patched files using emit_patches.`,
         tool: toAITool(TOOL_PATCH),
         maxTokens: 16000,
-      });
+      }, fallbacks.engineer, enqueue, "Refiner");
       const patches = ((refiner.toolArgs?.patches ?? []) as { path: string; content: string }[]);
       const patchMap = new Map(patches.map((p) => [p.path, p.content]));
       project = {
@@ -739,6 +787,8 @@ Deno.serve(async (req: Request) => {
         const stack = err instanceof Error ? err.stack : "";
         console.error("generate-ios-app error:", msg, stack);
 
+        const userMessage = formatUserError(err);
+
         if (userId) {
           await adminSupabase.from("generations").insert({
             user_id: userId,
@@ -748,7 +798,7 @@ Deno.serve(async (req: Request) => {
           });
         }
 
-        controller.enqueue(encoder.encode(sseEvent("error", { message: msg })));
+        controller.enqueue(encoder.encode(sseEvent("error", { message: userMessage })));
       } finally {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

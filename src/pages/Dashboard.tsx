@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -47,15 +47,7 @@ export default function Dashboard() {
   const [generations, setGenerations] = useState<GenerationRecord[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      setShowAuth(true);
-    } else if (user) {
-      fetchGenerations();
-    }
-  }, [user, authLoading]);
-
-  async function fetchGenerations() {
+  const fetchGenerations = useCallback(async () => {
     setLoadingData(true);
     try {
       const { data, error } = await supabase
@@ -71,7 +63,15 @@ export default function Dashboard() {
     } finally {
       setLoadingData(false);
     }
-  }
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      setShowAuth(true);
+    } else if (user) {
+      fetchGenerations();
+    }
+  }, [user, authLoading, fetchGenerations]);
 
   const handleReDownload = async (gen: GenerationRecord) => {
     if (!gen.files || gen.files.length === 0) {

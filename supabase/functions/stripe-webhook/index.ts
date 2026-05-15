@@ -39,8 +39,6 @@ async function verifyStripeSignature(body: string, signature: string, secret: st
   return expected === sig;
 }
 
-const PLAN_FROM_PRICE: Record<string, "pro" | "studio"> = {};
-
 function planFromMetadata(metadata: Record<string, string>): "pro" | "studio" | "free" {
   return (metadata?.plan as "pro" | "studio") ?? "free";
 }

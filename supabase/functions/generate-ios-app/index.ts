@@ -554,15 +554,15 @@ async function callWithFallback(
 // ─────────────────────────────────────────────────────────────
 // Generation pipeline (provider-agnostic)
 // ─────────────────────────────────────────────────────────────
-async function generate(
+// ── Phase 1-3: Core generation (Architect → Designer → Engineer) ──
+// Returns the project as soon as code generation is done so the caller
+// can stream the result to the user immediately.
+async function generateProject(
   prompt: string,
   provider: Provider,
   apiKey: string,
-  encoder: TextEncoder,
-  controller: ReadableStreamDefaultController,
+  enqueue: (type: string, data: Record<string, unknown>) => void,
 ) {
-  const enqueue = (type: string, data: Record<string, unknown>) =>
-    controller.enqueue(encoder.encode(sseEvent(type, data)));
   const models = DEFAULT_MODELS[provider];
   const fallbacks = FALLBACK_MODELS[provider];
   const tag = `[${provider}]`;
@@ -608,10 +608,28 @@ async function generate(
     maxTokens: 32000,
     timeoutMs: 180_000,
   }, fallbacks.engineer, enqueue, "Engineer");
-  let project = engineer.toolArgs as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
+  const project = engineer.toolArgs as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
+
+  return { project, plan };
+}
+
+// ── Phase 4-5: Deferred review + refine ──
+// Runs AFTER the initial result is streamed to the user.  If the reviewer
+// finds blocker issues the refiner patches them and a "patch" SSE event
+// is emitted so the frontend can hot-swap the affected files.
+async function reviewAndRefine(
+  project: { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string },
+  plan: Record<string, unknown>,
+  provider: Provider,
+  apiKey: string,
+  enqueue: (type: string, data: Record<string, unknown>) => void,
+): Promise<{ patchedProject: typeof project; review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null }> {
+  const models = DEFAULT_MODELS[provider];
+  const fallbacks = FALLBACK_MODELS[provider];
+  const tag = `[${provider}]`;
 
   // Phase 4: Reviewer
-  enqueue("progress", { phase: "bundling", message: `${tag} reviewer — checking ${(plan.acceptanceCriteria as string[] ?? []).length} acceptance criteria…`, percent: 80 });
+  enqueue("progress", { phase: "reviewing", message: `${tag} reviewer — checking ${(plan.acceptanceCriteria as string[] ?? []).length} acceptance criteria…`, percent: -1 });
   const manifest = buildReviewManifest(project, plan);
   let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
   try {
@@ -625,10 +643,12 @@ async function generate(
     review = reviewer.toolArgs as typeof review;
   } catch { /* non-fatal */ }
 
+  let patchedProject = project;
+
   // Phase 5: Refiner (if blockers found)
   if (review && !review.approved && review.blockers.length > 0) {
     const blockerSummary = review.blockers.slice(0, 3).map((b) => b.issue.slice(0, 60)).join("; ");
-    enqueue("progress", { phase: "bundling", message: `${tag} refiner — patching ${review.blockers.length} issue(s): ${blockerSummary}`, percent: 88 });
+    enqueue("progress", { phase: "reviewing", message: `${tag} refiner — patching ${review.blockers.length} issue(s): ${blockerSummary}`, percent: -1 });
     const blockerFiles = new Set(review.blockers.map((b) => b.file).filter((f) => f !== "project-level"));
     const filesToPatch = project.files.filter((f) => blockerFiles.has(f.path));
     const issueList = review.blockers.map((b) => `• [${b.file}] ${b.issue}\n  Fix: ${b.fix}`).join("\n");
@@ -642,14 +662,14 @@ async function generate(
       }, fallbacks.engineer, enqueue, "Refiner");
       const patches = ((refiner.toolArgs?.patches ?? []) as { path: string; content: string }[]);
       const patchMap = new Map(patches.map((p) => [p.path, p.content]));
-      project = {
+      patchedProject = {
         ...project,
         files: project.files.map((f) => patchMap.has(f.path) ? { ...f, content: patchMap.get(f.path)! } : f),
       };
     } catch { /* non-fatal */ }
   }
 
-  return { project, plan, review };
+  return { patchedProject, review };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -763,22 +783,27 @@ Deno.serve(async (req: Request) => {
 
   const encoder = new TextEncoder();
   const modelUsed = DEFAULT_MODELS[provider].engineer;
-  const costEstimate = provider === "anthropic" ? 0.25 : provider === "opencode" ? 0.20 : 0.10;
+  const costEstimate = provider === "anthropic" ? 0.25 : provider === "opencode" ? 0.20 : 0.15;
   const stream = new ReadableStream({
     async start(controller) {
+      const enqueue = (type: string, data: Record<string, unknown>) =>
+        controller.enqueue(encoder.encode(sseEvent(type, data)));
       try {
-        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "analyzing", message: "> prompt received — initializing pipeline…", percent: 5 })));
+        enqueue("progress", { phase: "analyzing", message: "> prompt received — initializing pipeline…", percent: 5 });
 
-        const { project, plan, review } = await generate(prompt, provider, apiKey, encoder, controller);
+        // ── Phases 1-3: generate the project (Architect → Engineer) ──
+        const { project, plan } = await generateProject(prompt, provider, apiKey, enqueue);
 
-        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "bundling", message: "[bundler] validating project structure…", percent: 93 })));
-
+        enqueue("progress", { phase: "bundling", message: "[bundler] validating project structure…", percent: 93 });
         const validationError = validateProject(project);
         if (validationError) throw new Error(validationError);
 
         const p = project as Record<string, unknown>;
         p.plan = plan;
-        p.reviewScore = (review as { score?: number } | null)?.score;
+
+        // ── Stream result immediately — user sees the project NOW ──
+        enqueue("progress", { phase: "done", message: "[done] project ready", percent: 100 });
+        enqueue("result", { project });
 
         if (userId) {
           const proj = project as { appName?: string; bundleId?: string; summary?: string; files?: unknown[] };
@@ -796,8 +821,27 @@ Deno.serve(async (req: Request) => {
           });
         }
 
-        controller.enqueue(encoder.encode(sseEvent("progress", { phase: "done", message: "[done] project ready", percent: 100 })));
-        controller.enqueue(encoder.encode(sseEvent("result", { project })));
+        // ── Phases 4-5: deferred review + refine (runs while user
+        //    already has the project open) ──
+        try {
+          const { patchedProject, review } = await reviewAndRefine(
+            project, plan, provider, apiKey, enqueue,
+          );
+          const reviewScore = (review as { score?: number } | null)?.score;
+          if (patchedProject !== project && patchedProject.files !== project.files) {
+            enqueue("patch", {
+              files: patchedProject.files,
+              reviewScore,
+              reviewSummary: review?.summary ?? null,
+            });
+          } else if (review) {
+            enqueue("review", { reviewScore, reviewSummary: review.summary });
+          }
+        } catch {
+          // review/refine failures are non-fatal — the user already has
+          // the project from the result event above.
+        }
+
       } catch (err) {
         const msg = err instanceof AIError
           ? err.message
@@ -816,7 +860,7 @@ Deno.serve(async (req: Request) => {
           });
         }
 
-        controller.enqueue(encoder.encode(sseEvent("error", { message: userMessage })));
+        enqueue("error", { message: userMessage });
       } finally {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

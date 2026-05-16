@@ -260,7 +260,7 @@ async function callOpencode(opts: AICallOptions): Promise<AIResult> {
 // Single source of truth for the model picker UI and edge functions.
 export const DEFAULT_MODELS: Record<Provider, { architect: string; engineer: string; reviewer: string }> = {
   gemini: {
-    architect: "gemini-2.5-pro",
+    architect: "gemini-2.5-flash",
     engineer:  "gemini-2.5-pro",
     reviewer:  "gemini-2.5-flash",
   },
@@ -279,7 +279,7 @@ export const DEFAULT_MODELS: Record<Provider, { architect: string; engineer: str
 // Fallback models used when the primary model is overloaded or unavailable.
 export const FALLBACK_MODELS: Record<Provider, { architect: string; engineer: string; reviewer: string }> = {
   gemini: {
-    architect: "gemini-2.5-flash",
+    architect: "gemini-2.0-flash",
     engineer:  "gemini-2.5-flash",
     reviewer:  "gemini-2.0-flash",
   },

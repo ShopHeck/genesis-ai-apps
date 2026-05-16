@@ -81,10 +81,10 @@ export default function Generator() {
       if (cancelled || queue.length === 0) return;
       const next = queue.shift()!;
       pushLog(next.kind, next.text);
-      const delay = 350 + Math.random() * 650;
+      const delay = 600 + Math.random() * 1200;
       setTimeout(drip, delay);
     };
-    const t = setTimeout(drip, 200);
+    const t = setTimeout(drip, 400);
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -184,10 +184,13 @@ export default function Generator() {
             const message = event.message as string;
             const percent = event.percent as number;
             const isRetry = phase === "retrying";
-            pushLog(
-              phase === "done" ? "success" : isRetry ? "warning" : phase === "error" ? "error" : "thought",
-              message ?? phase
-            );
+            const kind: LogKind = phase === "done" ? "success"
+              : isRetry ? "warning"
+              : phase === "error" ? "error"
+              : phase === "bundling" ? "action"
+              : phase === "generating" ? "action"
+              : "thought";
+            pushLog(kind, message ?? phase);
             if (!isRetry && percent >= 0) {
               if (percent >= 85) setStage("bundling");
               else if (percent >= 30) setStage("generating");
@@ -286,12 +289,17 @@ export default function Generator() {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
+      const fileManifest = project.files
+        .map((f) => f.path)
+        .join("\n");
+
       const { data, error: fnErr } = await supabase.functions.invoke("generate-app-preview", {
         body: {
           prompt: lastPromptUsed || prompt,
           appName: project.appName,
           summary: project.summary,
           plan: project.plan ?? null,
+          fileManifest,
         },
       });
       if (fnErr) throw new Error(fnErr.message);

@@ -55,6 +55,7 @@ Use a clean JS state machine. Persist nothing (no localStorage). State includes:
 - modalOpen: null | screenId
 - sheetOpen: null | screenId
 - formData: {}
+- toasts: [] — array of {id, message, type} for toast notifications
 
 ### Screen fidelity
 - Implement ALL screens specified in the plan as distinct views.
@@ -85,13 +86,25 @@ Use a clean JS state machine. Persist nothing (no localStorage). State includes:
 - The app must feel alive on load: seed data visible immediately in the populated state
 - Dark mode by default. Honor prefers-color-scheme for light mode.
 
+### Error handling & communication
+- Wrap all JS in a try/catch at the top level
+- On any runtime error, call: window.parent.postMessage({type:'preview-runtime-error', message: err.message}, '*')
+- On successful initial render, call: window.parent.postMessage({type:'preview-ready'}, '*')
+- This allows the host app to show error recovery UI
+
+### Scroll & touch behavior
+- All scrollable containers must use -webkit-overflow-scrolling: touch and overflow-y: auto
+- Prevent body scroll bounce with overscroll-behavior: none on html/body
+- Use scroll-snap on horizontal carousels
+- All touch targets must be at least 44x44px per Apple HIG
+
 Return ONLY the raw HTML document starting with <!DOCTYPE html>. No markdown fences, no commentary outside the HTML.`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, appName, summary, plan } = await req.json();
+    const { prompt, appName, summary, plan, fileManifest } = await req.json();
     if (!prompt) {
       return new Response(JSON.stringify({ error: "Missing prompt" }), {
         status: 400,
@@ -129,6 +142,16 @@ Deno.serve(async (req: Request) => {
       .map((s, i) => `${i + 1}. **${s.name}**: ${s.purpose}${s.emptyStateCopy ? ` | Empty: "${s.emptyStateCopy}"` : ""}${s.primaryCTA ? ` | CTA: "${s.primaryCTA}"` : ""}`)
       .join("\n");
 
+    const fileManifestContext = fileManifest
+      ? `\n\n## Generated Project Files (reference for screen names and data models)\n${fileManifest}`
+      : "";
+
+    const dataModelInfo = (plan?.dataModel as { name: string; fields: { name: string; type: string }[] }[] ?? [])
+      .map((m) => `- **${m.name}**: ${m.fields.map((f) => `${f.name}(${f.type})`).join(", ")}`)
+      .join("\n");
+
+    const seedDataInfo = plan?.seedData ? `\n\nSeed data (use these exact values):\n${typeof plan.seedData === "string" ? plan.seedData : JSON.stringify(plan.seedData, null, 2)}` : "";
+
     const userMessage = `Build an interactive HTML prototype for this iOS app.
 
 App: **${appName ?? "(unnamed)"}**
@@ -143,19 +166,24 @@ Motion: ${motionPersonality}
 Screens to implement:
 ${screenList || "Infer screens from the concept."}
 
+${dataModelInfo ? `Data models:\n${dataModelInfo}\n` : ""}${seedDataInfo}
+
 Original idea:
 """
 ${prompt}
 """
-${planContext}
+${planContext}${fileManifestContext}
 
 Requirements:
-- Responsive layout for mobile (≤480px), tablet (481-900px), desktop (≥901px)
+- Responsive layout for mobile (\u2264480px), tablet (481-900px), desktop (\u2265901px)
 - Use the exact accent color ${accentColor} for all interactive and active elements
-- Use the exact seed data from the plan — no generic placeholders
+- Use the exact seed data from the plan \u2014 no generic placeholders
 - Implement all ${(plan?.screens as unknown[])?.length ?? 4}+ screens with working navigation
 - Every tap target must navigate, open a sheet, submit a form, or toggle something
 - The app must look alive on first render with seed data visible
+- Wrap all JS in try/catch and call window.parent.postMessage({type:'preview-ready'}, '*') on successful render
+- On runtime errors call window.parent.postMessage({type:'preview-runtime-error', message: err.message}, '*')
+- All touch targets must be at least 44x44px
 - Return ONLY the raw HTML starting with <!DOCTYPE html>`;
 
     let result;

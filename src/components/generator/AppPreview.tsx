@@ -12,6 +12,7 @@ import {
   Minimize2,
   RotateCcw,
   Camera,
+  Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -75,12 +76,14 @@ export function AppPreview({
   error,
   onRegenerate,
   appName,
+  onOpenPlayground,
 }: {
   html: string | null;
   loading: boolean;
   error: string | null;
   onRegenerate: () => void;
   appName: string;
+  onOpenPlayground?: () => void;
 }) {
   const [device, setDevice] = useState<DeviceMode>("mobile");
   const [orientation, setOrientation] = useState<Orientation>("portrait");
@@ -185,6 +188,18 @@ export function AppPreview({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {html && onOpenPlayground && (
+            <Button
+              onClick={onOpenPlayground}
+              variant="outline"
+              size="sm"
+              className="border-border/60"
+              title="Open live code playground"
+            >
+              <Code2 size={14} />
+              <span className="hidden sm:inline ml-1">Edit Code</span>
+            </Button>
+          )}
           {html && (
             <Button
               onClick={handleDownloadPreview}

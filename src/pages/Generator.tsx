@@ -34,6 +34,9 @@ import { buildTree, FileTreeView } from "@/components/generator/FileTree";
 import { ZipPreviewCard } from "@/components/generator/ZipPreviewCard";
 import { validateProject, ValidationPanel } from "@/components/generator/ValidationPanel";
 import { AppPreview } from "@/components/generator/AppPreview";
+import { PreviewPlayground } from "@/components/generator/PreviewPlayground";
+import { RefinementChat } from "@/components/generator/RefinementChat";
+import { XcodeExportButton } from "@/components/generator/XcodeExport";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
 export default function Generator() {
@@ -53,6 +56,7 @@ export default function Generator() {
   const [lastPromptUsed, setLastPromptUsed] = useState<string>("");
   const [showAuth, setShowAuth] = useState(false);
   const [regeneratingFile, setRegeneratingFile] = useState(false);
+  const [showPlayground, setShowPlayground] = useState(false);
   const startedAt = useRef<number | null>(null);
   const logIdRef = useRef(0);
   const terminalRef = useRef<HTMLDivElement | null>(null);
@@ -775,6 +779,27 @@ export default function Generator() {
                 error={previewError}
                 onRegenerate={generatePreview}
                 appName={project.appName}
+                onOpenPlayground={() => setShowPlayground(true)}
+              />
+
+              {/* Live Code Playground */}
+              {showPlayground && previewHtml && (
+                <PreviewPlayground
+                  html={previewHtml}
+                  appName={project.appName}
+                  onHtmlChange={(html) => setPreviewHtml(html)}
+                />
+              )}
+
+              {/* Iterative Refinement Chat */}
+              <RefinementChat
+                project={project}
+                prompt={lastPromptUsed}
+                provider={provider}
+                onProjectUpdate={(updated) => {
+                  setProject(updated);
+                  setSelectedFile(updated.files[0]?.path ?? null);
+                }}
               />
 
               {/* Pre-download validation */}
@@ -880,33 +905,12 @@ export default function Generator() {
                 </div>
               </div>
 
-              {/* Build instructions */}
-              <div className="glass-panel p-6">
-                <h3 className="font-display text-lg font-semibold mb-3">Open in Xcode</h3>
-                <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-                  <li>Download and unzip the project.</li>
-                  <li>
-                    Install{" "}
-                    <code className="text-primary text-xs bg-card/60 px-1.5 py-0.5 rounded">
-                      brew install xcodegen
-                    </code>{" "}
-                    (one-time).
-                  </li>
-                  <li>
-                    Run{" "}
-                    <code className="text-primary text-xs bg-card/60 px-1.5 py-0.5 rounded">
-                      xcodegen generate
-                    </code>{" "}
-                    inside the project folder to create the{" "}
-                    <code className="text-xs">.xcodeproj</code>.
-                  </li>
-                  <li>
-                    Open in Xcode 16+, set your Apple Developer Team in Signing &amp; Capabilities,
-                    and Run.
-                  </li>
-                  <li>Archive → Distribute App → App Store Connect when ready to ship.</li>
-                </ol>
-              </div>
+              {/* Xcode Project Export */}
+              <XcodeExportButton
+                project={project}
+                editedFiles={editedFiles}
+                validation={validation}
+              />
             </motion.section>
           )}
         </AnimatePresence>

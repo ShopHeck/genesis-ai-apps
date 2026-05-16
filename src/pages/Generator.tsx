@@ -224,6 +224,17 @@ export default function Generator() {
                 });
               }, 2000);
             }
+          } else if (event.type === "patch") {
+            const patchedFiles = (event.files as Project["files"]) ?? [];
+            if (patchedFiles.length > 0) {
+              setProject(prev => prev ? { ...prev, files: patchedFiles } : prev);
+              const score = event.reviewScore as number | undefined;
+              pushLog("action", `[reviewer] quality score: ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
+              toast.info("Review complete — files updated with quality fixes");
+            }
+          } else if (event.type === "review") {
+            const score = event.reviewScore as number | undefined;
+            pushLog("success", `[reviewer] quality score: ${score ?? "—"}/100 · approved`);
           } else if (event.type === "error") {
             throw new Error((event.message as string) ?? "Generation failed");
           }

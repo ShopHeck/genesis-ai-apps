@@ -1,50 +1,178 @@
 import type { PromptTemplate } from "@/components/generator/types";
 
 export const EXAMPLE_PROMPTS: PromptTemplate[] = [
+  // ───── For Creators (5) ─────
   {
-    category: "Wellness",
-    label: "Lunar mood journal",
-    tagline: "Nocturnal journaling tied to the moon.",
-    signature: "Constellation map of your emotions over months.",
-    screens: ["Tonight", "New entry", "Constellation", "Lock widget"],
-    accent: "#7C8DFF",
-    emoji: "🌙",
+    category: "Creator",
+    label: "Sponsorship rate card",
+    tagline: "Know your worth. Price your content.",
+    signature: "Auto-calculated CPM from real engagement data.",
+    screens: ["Dashboard", "Rate card", "Deal tracker", "Media kit"],
+    accent: "#FF6B35",
+    emoji: "💰",
     prompt:
-      "A nocturnal mood journal that pairs each entry with the current moon phase and a generative ambient color palette. Includes Face ID lock, on-device sentiment trends in Swift Charts, a 'constellation map' visualizing emotional patterns over months, and a Lock Screen widget showing tonight's moon.",
+      "A creator monetization app. Manually log follower counts and engagement rates per platform (YouTube, TikTok, Instagram, X). Auto-calculates CPM and cost-per-engagement. Generates a shareable media kit as a branded PDF via ShareLink. Tracks inbound brand deal inquiries with status pipeline (pitched → negotiating → contracted → delivered → paid). Swift Charts show earnings over time. Lock Screen widget shows this month's deal revenue.",
   },
   {
-    category: "Wellness",
-    label: "Breath-led focus",
-    tagline: "Pomodoro timed to your breath.",
-    signature: "Live Activity breath cadence + procedural focus stones.",
-    screens: ["Session", "Breath rings", "Stones", "History"],
-    accent: "#5EE2C7",
-    emoji: "🫁",
+    category: "Creator",
+    label: "Content pipeline",
+    tagline: "Idea to published, across every platform.",
+    signature: "Visual Kanban board with voice-captured ideas.",
+    screens: ["Pipeline", "Idea capture", "Batch planner", "Calendar"],
+    accent: "#8B5CF6",
+    emoji: "🎬",
     prompt:
-      "A focus timer that syncs Pomodoro intervals to guided breathing patterns (box, 4-7-8, coherent). Live Activities show breath cadence on the Dynamic Island, ambient soundscapes loop via AVAudioEngine, and finished sessions mint a collectible 'focus stone' with procedural SwiftUI artwork.",
+      "A content production tracker with a drag-and-drop Kanban board: columns for Idea → Scripted → Shot → Edited → Scheduled → Published. Quick-capture ideas via voice (SFSpeechRecognizer) or text from anywhere using a Share Extension. Batch planning calendar shows shoot days vs editing days. Each card tracks platform-specific versions (vertical, horizontal, square). Deadline alerts via UserNotifications. Lock Screen widget shows today's content task.",
   },
   {
-    category: "Productivity",
-    label: "Time garden",
-    tagline: "Tasks grow plants in a living garden.",
-    signature: "Garden seasons shift with real local weather.",
-    screens: ["Garden", "Today's tasks", "Plant detail", "Widget"],
-    accent: "#7AC74F",
-    emoji: "🌱",
+    category: "Creator",
+    label: "B-roll vault",
+    tagline: "Tag, search, and reuse your footage library.",
+    signature: "Vision auto-tags clips by scene, mood, and color.",
+    screens: ["Library", "Quick tag", "Search", "Collections"],
+    accent: "#06B6D4",
+    emoji: "🎞",
     prompt:
-      "A task manager where every completed task grows a plant in a personal SwiftUI garden. Plants thrive on consistency, wilt on procrastination, and seasons shift with your actual local weather via WeatherKit. Includes WidgetKit garden snapshot and App Intents for Siri ('plant a seed for…').",
+      "A footage library manager for video creators. Import clips from the camera roll, auto-categorize using on-device Vision (indoor/outdoor, people, food, nature, urban). Manual tags for mood, project, and season. Full-text search across tags. Tracks which clips have been used in which projects to avoid repeats. Bulk-tag multiple clips at once. Export selected clips as a collection via ShareLink. SwiftData persistence, filterable grid view.",
   },
   {
-    category: "Productivity",
-    label: "Intention compass",
-    tagline: "A weekly compass of your intentions.",
-    signature: "Needle visualizes alignment with your 4 intentions.",
-    screens: ["Compass", "Set intentions", "Daily log", "Sunday review"],
-    accent: "#F2B441",
-    emoji: "🧭",
+    category: "Creator",
+    label: "Collab tracker",
+    tagline: "Never lose a collab in your DMs again.",
+    signature: "Pipeline from pitch to publish with revenue splits.",
+    screens: ["Active collabs", "New collab", "Timeline", "Payouts"],
+    accent: "#EC4899",
+    emoji: "🤝",
     prompt:
-      "A weekly review app shaped like a compass. You set 4 cardinal intentions; the needle visualizes alignment based on how you spent your time (manual logs + Screen Time). Sunday review surfaces an AI-style narrative summary built from your own notes.",
+      "A collaboration management app for creators. Track every collab from first contact through delivery: stages are Pitched → Agreed → Briefed → Filming → Editing → Published. Store collaborator contact info, deadlines, content specs, and revenue splits. Auto-generates a collaboration brief from your inputs. Notification reminders for follow-ups and deadlines. Calendar view shows collab timeline. Swift Charts tracks total collab revenue by month.",
   },
+  {
+    category: "Creator",
+    label: "Launch countdown",
+    tagline: "Build hype for drops, releases, and premieres.",
+    signature: "Live Activity countdown shared with your audience.",
+    screens: ["Launches", "New launch", "Countdown", "Post scheduler"],
+    accent: "#F59E0B",
+    emoji: "🚀",
+    prompt:
+      "A launch coordination app for musicians, podcasters, and video creators. Create countdown pages for upcoming releases with cover art, description, and links. Live Activity shows real-time countdown on the Dynamic Island. Plan cross-platform posting schedules (auto-reminds you when to post on each platform). Tracks multiple upcoming launches on a timeline. Share countdown links via ShareLink. Lock Screen widget shows days until next drop.",
+  },
+
+  // ───── For Business Owners (5) ─────
+  {
+    category: "Business",
+    label: "Cash pulse",
+    tagline: "Daily cash flow in one calm glance.",
+    signature: "Runway forecast with 'danger zone' alerts.",
+    screens: ["Pulse", "Log entry", "Forecast", "Weekly report"],
+    accent: "#10B981",
+    emoji: "💵",
+    prompt:
+      "A daily cash flow tracker for small business owners. Log income and expenses with one tap — snap receipts with VisionKit DataScanner for auto-extraction. Categorize by type (payroll, materials, subscriptions, revenue, one-time). 30/60/90-day runway forecast using Swift Charts. 'Danger zone' alerts when projected outflows exceed inflows. Weekly cash health report exportable as PDF. Lock Screen widget shows today's net position. SwiftData persistence, Face ID lock.",
+  },
+  {
+    category: "Business",
+    label: "Client voice",
+    tagline: "Hear what your customers actually want.",
+    signature: "Auto-clusters feedback into patterns and themes.",
+    screens: ["Inbox", "Feedback detail", "Patterns", "Decision log"],
+    accent: "#6366F1",
+    emoji: "📣",
+    prompt:
+      "A customer feedback aggregator for product-driven businesses. Capture feedback from any source: paste text, screenshot (VisionKit OCR), voice memo (SFSpeechRecognizer), or photo of a whiteboard. NaturalLanguage framework auto-tags sentiment (positive, neutral, negative) and clusters similar requests. Dashboard shows 'top 5 asks' with request counts. Decision log tracks what you shipped in response. Export monthly insights report via ShareLink. SwiftData with full-text search.",
+  },
+  {
+    category: "Business",
+    label: "Quote builder",
+    tagline: "Professional proposals in under a minute.",
+    signature: "Branded PDF quotes with e-signature capture.",
+    screens: ["Quotes", "New quote", "Preview", "Templates"],
+    accent: "#0EA5E9",
+    emoji: "📝",
+    prompt:
+      "A mobile quoting and proposal tool for freelancers and service businesses. Choose from service templates (consulting, design, development, photography), add line items with quantities and rates, apply tax and discount. Preview as a branded PDF with your logo and colors. Client signature capture via PencilKit. Auto-follow-up reminders for unsigned quotes. Track quote status (draft → sent → viewed → signed → invoiced). Export via ShareLink or email. SwiftData stores client history.",
+  },
+  {
+    category: "Business",
+    label: "Contractor command",
+    tagline: "Manage your freelancers without the spreadsheet.",
+    signature: "Budget guardrails alert before you overspend.",
+    screens: ["Team", "Timesheets", "Budgets", "Pay runs"],
+    accent: "#F97316",
+    emoji: "👷",
+    prompt:
+      "A contractor management app for business owners who hire freelancers. Add contractors with rates (hourly/project), track submitted hours and deliverables, approve timesheets with one swipe. Set per-contractor and per-project budget ceilings with alert notifications when 80% spent. Monthly spending breakdown by contractor and project in Swift Charts. Export pay run summaries as CSV. SwiftData persistence, grouped views by project or contractor.",
+  },
+  {
+    category: "Business",
+    label: "Storefront pulse",
+    tagline: "Your shop's daily vitals, no POS needed.",
+    signature: "Correlates sales with weather and day-of-week patterns.",
+    screens: ["Today", "Log sale", "Trends", "Inventory alerts"],
+    accent: "#84CC16",
+    emoji: "🏪",
+    prompt:
+      "A lightweight daily tracker for physical retail, market vendors, and pop-up shop owners. Tap to log each sale (amount + category). Manual inventory counter with low-stock alerts. Foot traffic counter (manual tap or photo-based). Correlates daily revenue with weather (WeatherKit) and day-of-week patterns using Swift Charts. Shows best/worst selling days, peak hours, and seasonal trends. Weekly summary exportable as PDF. Lock Screen widget shows today's sales total.",
+  },
+
+  // ───── For Designers (5) ─────
+  {
+    category: "Design",
+    label: "Type specimen book",
+    tagline: "Your personal typography library on the go.",
+    signature: "Camera mode identifies fonts from real-world signage.",
+    screens: ["Library", "Specimen", "Pairings", "Type walk"],
+    accent: "#1E293B",
+    emoji: "🔤",
+    prompt:
+      "A personal font reference app for typographers and designers. Import system fonts and catalog them with tags (serif, sans, mono, display, weight, mood). Generate specimen sheets with pangrams, paragraphs, and size scales. Create and save font pairings with live preview at different sizes. 'Type Walk' camera mode captures text from real-world signage (VisionKit) and identifies similar system fonts. Export specimen cards as PNG via ShareLink. SwiftData library with search and filter.",
+  },
+  {
+    category: "Design",
+    label: "Contrast checker",
+    tagline: "Never ship inaccessible colors again.",
+    signature: "Camera-sampled colors with instant WCAG verdicts.",
+    screens: ["Palette", "Check", "Suggestions", "Export"],
+    accent: "#7C3AED",
+    emoji: "🔍",
+    prompt:
+      "A color accessibility tool for designers. Build palettes manually or sample colors from the camera. Instantly checks every color combination against WCAG 2.1 AA and AAA contrast ratios for normal and large text. Flags failures with suggested accessible alternatives (shifts hue/lightness minimally to pass). Preview color pairs on realistic UI mockups (buttons, cards, text blocks). Generate tint and shade scales. Export palettes as JSON design tokens, CSS custom properties, or SwiftUI Color extensions via ShareLink.",
+  },
+  {
+    category: "Design",
+    label: "Client review board",
+    tagline: "Structured design feedback, not messy email threads.",
+    signature: "Tap-to-comment on specific areas of your designs.",
+    screens: ["Projects", "Upload", "Review board", "Revisions"],
+    accent: "#E11D48",
+    emoji: "💬",
+    prompt:
+      "A design review app for client feedback. Upload screenshots or mockups of your work. Clients (or you, simulating a review) tap specific areas to drop pin comments — like spatial annotations on an image. Each comment has a status (open, resolved, deferred). Track revision rounds: v1, v2, v3 with side-by-side comparison. Project-level approval status (in review → changes requested → approved). Timeline shows review history. Export feedback summary as PDF. SwiftData persistence with image caching.",
+  },
+  {
+    category: "Design",
+    label: "Moodboard studio",
+    tagline: "Capture inspiration, present it beautifully.",
+    signature: "Auto-extracts dominant colors and clusters by mood.",
+    screens: ["Boards", "Capture", "Board editor", "Present"],
+    accent: "#D946EF",
+    emoji: "🖼",
+    prompt:
+      "A visual inspiration tool for designers. Capture images from camera, screenshots, or photo library into themed moodboards. On-device Vision extracts dominant colors from each image. Free-form canvas layout — pinch to resize, drag to arrange, add text labels. Auto-clusters images by color mood. Fullscreen presentation mode for client pitches with swipe navigation. Export boards as high-res PNG or PDF via ShareLink. SwiftData stores boards with image thumbnails.",
+  },
+  {
+    category: "Design",
+    label: "Component cutter",
+    tagline: "Screenshot any UI. Extract its building blocks.",
+    signature: "Vision-powered extraction of spacing, colors, and radii.",
+    screens: ["Captures", "Analyze", "Tokens", "Reference library"],
+    accent: "#0D9488",
+    emoji: "🔬",
+    prompt:
+      "A UI reverse-engineering tool for designers and developers. Screenshot any app or website, then the app uses Vision to identify UI elements (buttons, cards, nav bars, text blocks). Extracts approximate spacing values, border radii, font sizes, and color swatches. Save analyzed screens to a reference library organized by app or style. Compare extracted tokens side-by-side across different designs. Export token sheets as JSON or PNG cheat sheets via ShareLink. SwiftData persistence.",
+  },
+
+  // ───── Kept Originals ─────
   {
     category: "Creative",
     label: "Pocket synth",
@@ -101,17 +229,6 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
       "A private shared notebook for exactly two people via CloudKit. Pages can hold text, sketches (PencilKit), photos, and audio notes. A 'pulse' indicator shows when the other person is reading. Includes Lock Screen widget with the latest entry preview.",
   },
   {
-    category: "Social",
-    label: "Slow letters",
-    tagline: "Anti-instant messenger with delayed delivery.",
-    signature: "Wax-seal stickers + filling weekly mailbox.",
-    screens: ["Mailbox", "Compose", "Letter detail", "Friends"],
-    accent: "#C9A66B",
-    emoji: "✉️",
-    prompt:
-      "An anti-instant messenger: messages between friends arrive on a delay you choose (1 hour to 7 days), encouraging thoughtful long-form notes. Beautiful envelope animations, wax-seal stickers, and a mailbox view that fills throughout the week.",
-  },
-  {
     category: "Finance",
     label: "Subscription forest",
     tagline: "Subscriptions visualized as a forest.",
@@ -121,28 +238,6 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
     emoji: "🌲",
     prompt:
       "A subscription tracker visualized as a forest — each subscription is a tree sized by its monthly cost. Cancel one and watch the canopy thin. Includes renewal Live Activities, App Intents to log a new subscription via Siri, and yearly 'forest report'.",
-  },
-  {
-    category: "Learning",
-    label: "Vocabulary garden",
-    tagline: "Spaced-repetition words bloom as flowers.",
-    signature: "On-device AI example sentences, any language pair.",
-    screens: ["Garden", "Review", "Word detail", "Widget"],
-    accent: "#E27DBB",
-    emoji: "🌸",
-    prompt:
-      "A spaced-repetition vocabulary app where each word becomes a flower in a personal garden. Uses on-device AI for example sentences, supports any language pair, and includes a daily 5-minute review widget plus AppShortcut to log a word from anywhere.",
-  },
-  {
-    category: "Health",
-    label: "Sleep weather",
-    tagline: "Last night's sleep as today's forecast.",
-    signature: "HealthKit → sunny / foggy / stormy day forecast.",
-    screens: ["Forecast", "Wind-down", "Ritual builder", "Widget"],
-    accent: "#6FB7FF",
-    emoji: "⛅",
-    prompt:
-      "A sleep companion that turns last night's HealthKit sleep data into a 'weather forecast' for your day (sunny, foggy, stormy). Includes a Lock Screen widget with today's forecast, a sleep ritual builder, and gentle haptic wind-down sessions.",
   },
   {
     category: "Utility",
@@ -155,19 +250,6 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
     prompt:
       "A personal museum app where users curate everyday objects via the camera (coins, leaves, receipts). Each object gets an AI-generated wall label, organized into themed exhibitions. Browse as a 3D gallery using RealityKit.",
   },
-  {
-    category: "Utility",
-    label: "Deja vu log",
-    tagline: "Capture moments that feel familiar.",
-    signature: "On-device similarity surfaces 'echoes' over time.",
-    screens: ["Timeline", "Capture", "Echoes", "Entry detail"],
-    accent: "#FFB45A",
-    emoji: "🔁",
-    prompt:
-      "A capture app for moments that feel familiar — voice memo + location + emotion tag. SwiftData powers a timeline; Vision and on-device similarity surface 'echoes' between entries months apart, revealing personal patterns.",
-  },
-
-  // ───── Creative + High Utility (5) ─────
   {
     category: "Utility",
     label: "Receipt whisperer",
@@ -224,64 +306,7 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
       "An email triage app that turns your unread inbox into a swipeable card deck (Mail via MailKit-style integration or IMAP). Swipe to archive, snooze, reply-later, or delegate. Daily ritual ends with a 'today's wins' summary and Live Activity counter as you process. Haptic feedback for each clear.",
   },
 
-  // ───── Trending + High Demand (5) ─────
-  {
-    category: "AI",
-    label: "Voice clone diary",
-    tagline: "Talk to your past self.",
-    signature: "On-device voice journaling with AI-summarized weekly playback.",
-    screens: ["Today", "Record", "Playback", "Insights"],
-    accent: "#FF7A59",
-    emoji: "🎤",
-    prompt:
-      "A voice-first journal where you speak entries and get on-device transcription + sentiment via Speech and NaturalLanguage. Weekly AI summary stitches together a 60-second 'past self' playback. SwiftData archive, searchable transcripts, and a Lock Screen widget prompting today's question.",
-  },
-  {
-    category: "AI",
-    label: "Outfit oracle",
-    tagline: "AI stylist that knows your closet.",
-    signature: "Photograph clothes once → daily outfit suggestions.",
-    screens: ["Closet", "Today", "Outfit detail", "Capsule"],
-    accent: "#D77AE8",
-    emoji: "👗",
-    prompt:
-      "A wardrobe app: photograph each garment once, Vision auto-categorizes (top/bottom/shoes, color, season). Generates daily outfit suggestions based on weather (WeatherKit), calendar events, and recent wears. Build capsule wardrobes, track cost-per-wear, and a widget shows today's suggested fit.",
-  },
-  {
-    category: "Health",
-    label: "Longevity score",
-    tagline: "Daily score from sleep, steps, HRV, nutrition.",
-    signature: "Composite score with one focused 'lever of the day'.",
-    screens: ["Today", "Trends", "Levers", "Weekly review"],
-    accent: "#3FBF8E",
-    emoji: "💚",
-    prompt:
-      "A longevity dashboard pulling HealthKit (sleep, steps, HRV, VO2max, resting HR) plus manual nutrition logging. Computes a daily 0-100 score, surfaces the single highest-impact 'lever of the day', and shows 90-day trends in Swift Charts. Weekly review with narrative insights and a Lock Screen widget.",
-  },
-  {
-    category: "Finance",
-    label: "Crypto mood",
-    tagline: "Portfolio + sentiment in one calm view.",
-    signature: "Glanceable mood ring + Live Activity for big moves.",
-    screens: ["Portfolio", "Coin detail", "Alerts", "Widget"],
-    accent: "#F5A524",
-    emoji: "🪙",
-    prompt:
-      "A calm crypto tracker. Live prices for user-selected coins, animated 'mood ring' showing portfolio sentiment, customizable alerts (% moves, RSI thresholds). Live Activity surfaces big moves on the Dynamic Island, Lock Screen widget shows today's PnL. SwiftData for holdings; no login required.",
-  },
-  {
-    category: "Productivity",
-    label: "Second brain capture",
-    tagline: "Universal capture → smart inbox + linking.",
-    signature: "Share Sheet captures anything; AI auto-tags and links notes.",
-    screens: ["Inbox", "Note", "Graph", "Daily review"],
-    accent: "#6E8DFF",
-    emoji: "🧠",
-    prompt:
-      "A second-brain note app with a Share Extension to capture text, links, images, and voice from anywhere on iOS. On-device NaturalLanguage auto-tags entries and suggests links between notes. Visual knowledge graph in SwiftUI Canvas, daily review queue, and Spotlight indexing for instant recall.",
-  },
-
-  // ───── Gaming (5) ─────
+  // ───── Gaming (3) ─────
   {
     category: "Gaming",
     label: "Tide pool tycoon",
@@ -314,27 +339,5 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
     emoji: "⚔️",
     prompt:
       "A one-thumb roguelike where each run is a 5-minute procedurally generated dungeon. Swipe to move, tap to attack, long-press for special. Permanent meta-progression unlocks classes and relics in the hub. SpriteKit + GameplayKit for procgen, SwiftData saves runs, GameCenter leaderboards for daily seeds.",
-  },
-  {
-    category: "Gaming",
-    label: "Rhythm garden",
-    tagline: "Tap to the beat; flowers bloom on rhythm.",
-    signature: "AVAudioEngine beat detection turns any song into a level.",
-    screens: ["Garden", "Song picker", "Play", "Bouquet"],
-    accent: "#7BE0A6",
-    emoji: "🎵",
-    prompt:
-      "A rhythm game where tapping in time grows flowers in your garden. AVAudioEngine analyzes any Apple Music song you own to generate a level. Combo streaks bloom rare flowers; bouquets share as video via ShareLink. Beautiful particle effects, haptic feedback locked to the beat.",
-  },
-  {
-    category: "Gaming",
-    label: "Ghost racer AR",
-    tagline: "Race your past run as an AR ghost.",
-    signature: "Yesterday's path overlays today's via ARKit.",
-    screens: ["Tracks", "Race", "Replay", "Ghosts"],
-    accent: "#FF9E3F",
-    emoji: "👻",
-    prompt:
-      "A walking/running game that records your route via CoreLocation, then replays it as an AR 'ghost' you race against next time using ARKit world tracking. Compete with friends' ghosts via CloudKit, unlock cosmetic trails, and a Live Activity shows your gap to the ghost in real time.",
   },
 ];

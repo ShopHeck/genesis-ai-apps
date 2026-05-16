@@ -131,8 +131,22 @@ async function callGemini(opts: AICallOptions): Promise<AIResult> {
 
   if (opts.tool) {
     const fc = parts.find((p) => p.functionCall)?.functionCall;
-    if (!fc?.args) throw new AIError("gemini", 200, "model did not return a tool call");
-    return { toolArgs: fc.args };
+    if (fc?.args) return { toolArgs: fc.args };
+
+    // Fallback: Flash models sometimes return tool args as JSON text instead
+    // of a proper functionCall part. Try to extract it.
+    const rawText = parts.map((p) => p.text ?? "").join("").trim();
+    if (rawText) {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (typeof parsed === "object" && parsed !== null) return { toolArgs: parsed };
+        } catch { /* not valid JSON, fall through to retry */ }
+      }
+    }
+    // Use 503 so callAI's retry logic kicks in (200 is not retryable)
+    throw new AIError("gemini", 503, "model did not return a tool call — retrying");
   }
   const text = parts.map((p) => p.text ?? "").join("").trim();
   if (!text) throw new AIError("gemini", 200, "empty text response");

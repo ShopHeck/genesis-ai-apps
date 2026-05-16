@@ -51,13 +51,33 @@ The anon key is stored as a permanent repo-scoped Devin secret. Check `/run/repo
 - On production/Netlify preview: open DevTools Network tab, navigate between pages, confirm separate JS chunks load on demand
 
 ### 3. Generator Page (`/generator`)
-- 30 curated templates visible ("30 curated . click to load" label)
+- 30 curated templates visible ("30 curated · click to load" label)
 - Click any template card -> prompt textarea fills with template description
-- Selected template shows checkmark indicator
+- Selected template shows checkmark indicator (blue circle with Check icon, top-right of card)
 - Provider selector shows "Gemini" as default
 - "Generate App" button present with sparkle icon
 - "Sign in for 3 free builds/mo" link in footer bar
 - Back button navigates to home
+
+#### Template Categories
+The 30 templates span 9 categories. When verifying templates, check:
+- **New categories** (added in template overhaul): Creator (5 templates, orange accent), Business (5 templates, green accent), Design (5 templates, teal accent)
+- **Kept categories**: Creative, Outdoors, Social, Finance, Utility, Gaming
+- Category labels render as uppercase text above the template label, colored with the template's accent color
+
+#### Template Interaction Testing
+1. Click a template -> textarea fills with the full prompt text
+2. Click a different template -> textarea updates, previous template loses checkmark (single-select)
+3. Verify checkmark appears only on the currently selected template
+4. Use browser console to verify template count: `document.querySelectorAll('button[title]').length` should return 30 (plus any non-template buttons)
+
+#### Verifying Removed Templates
+If templates were replaced (e.g., oversaturated templates removed), verify via DOM search:
+```javascript
+const allText = Array.from(document.querySelectorAll('button[title]')).map(b => b.title + ' ' + b.textContent).join(' ');
+// Check specific removed template names:
+console.log(allText.includes('Lunar mood journal')); // should be false
+```
 
 ### 4. Generation Flow (requires backend credentials)
 
@@ -129,7 +149,8 @@ The anon key is stored as a permanent repo-scoped Devin secret. Check `/run/repo
 ### 9. Netlify Preview
 - If a PR is open, check the Netlify deploy preview URL
 - Format: `https://deploy-preview-{PR_NUMBER}--genesis-ai-apps.netlify.app`
-- Verify landing page loads and matches local dev
+- **Important**: Netlify preview may render blank if Supabase env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) are not configured in the Netlify project settings. If the preview shows an empty `#root` div, use the local dev server instead.
+- When Netlify env vars are configured, verify landing page loads and matches local dev
 
 ## Console Expectations
 
@@ -144,6 +165,7 @@ The anon key is stored as a permanent repo-scoped Devin secret. Check `/run/repo
 When generation fails, verify:
 - Error banner appears with AlertTriangle icon and red/destructive styling
 - Error message shows the actual API error (not just generic text)
+- "Try again" button in the error banner clears error and restarts generation
 - Toast notification appears with error details
 - Generate App button re-enables after failure (allows retry)
 - No unhandled console errors
@@ -155,6 +177,7 @@ When generation fails, verify:
 - **Auth flows**: Supabase auth (magic link + Google OAuth) requires valid Supabase project credentials. The auth modal UI can be tested but not the actual sign-in.
 - **Rate limiting**: Server-side IP rate limiting (5 req/min) on the generation endpoint.
 - **JWT verification**: Edge function JWT verification is configured via `supabase/config.toml` (`verify_jwt = false` for anonymous access).
+- **Netlify preview blank page**: The React app requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to initialize. Without these env vars in Netlify project settings, the preview renders a blank page with empty `#root` div. Use local dev server as fallback.
 
 ## Devin Secrets Needed
 

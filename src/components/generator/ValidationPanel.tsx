@@ -148,6 +148,128 @@ export function validateProject(project: Project): ValidationResult {
     passed.push("README present");
   }
 
+  // 9. Swift 6 strict concurrency checks
+  const swiftFiles = project.files.filter((f) => f.path.endsWith(".swift"));
+  const usesObservableObject = swiftFiles.some((f) => /\bObservableObject\b/.test(f.content));
+  const usesObservable = swiftFiles.some((f) => /@Observable\b/.test(f.content));
+  if (usesObservableObject && !usesObservable) {
+    warnings.push({
+      level: "warning",
+      message: "Uses ObservableObject instead of @Observable",
+      hint: "Swift 6 / iOS 17+ apps should prefer @Observable (Observation framework) over the older ObservableObject protocol.",
+    });
+  } else if (usesObservable) {
+    passed.push("@Observable pattern (Swift 6)");
+  }
+
+  // 10. NavigationStack vs NavigationView
+  const usesNavigationView = swiftFiles.some((f) => /\bNavigationView\b/.test(f.content));
+  const usesNavigationStack = swiftFiles.some((f) => /\bNavigationStack\b/.test(f.content));
+  if (usesNavigationView) {
+    warnings.push({
+      level: "warning",
+      message: "Uses deprecated NavigationView",
+      hint: "NavigationView is deprecated in iOS 16+. Use NavigationStack with value-based .navigationDestination(for:) instead.",
+    });
+  }
+  if (usesNavigationStack) {
+    passed.push("NavigationStack pattern");
+  }
+
+  // 11. SwiftData vs CoreData
+  const usesCoreData = swiftFiles.some((f) => /\bimport CoreData\b/.test(f.content));
+  const usesSwiftData = swiftFiles.some((f) => /\bimport SwiftData\b/.test(f.content) || /@Model\b/.test(f.content));
+  if (usesCoreData) {
+    warnings.push({
+      level: "warning",
+      message: "Uses CoreData instead of SwiftData",
+      hint: "Modern iOS 17+ apps should use SwiftData (@Model, @Query) instead of CoreData.",
+    });
+  }
+  if (usesSwiftData) {
+    passed.push("SwiftData persistence");
+  }
+
+  // 12. Theme.swift completeness
+  const themeFile = project.files.find((f) => f.path.endsWith("Theme.swift"));
+  if (themeFile) {
+    const themeContent = themeFile.content;
+    const themeTokens = [
+      { re: /accentColor|accent/i, label: "accent color" },
+      { re: /spacing|paddingScale/i, label: "spacing scale" },
+      { re: /cornerRadius|radius/i, label: "corner radii" },
+    ];
+    let themeComplete = true;
+    for (const t of themeTokens) {
+      if (!t.re.test(themeContent)) {
+        themeComplete = false;
+        warnings.push({
+          level: "warning",
+          message: `Theme.swift missing ${t.label} token`,
+          file: themeFile.path,
+          hint: "A complete design system requires all core tokens defined in Theme.swift.",
+        });
+      }
+    }
+    if (themeComplete) {
+      passed.push("Theme.swift design tokens");
+    }
+  }
+
+  // 13. Accessibility checks
+  const viewFiles = swiftFiles.filter((f) => /struct\s+\w+\s*:\s*View\b/.test(f.content));
+  const hasAccessibility = viewFiles.some((f) =>
+    /\.accessibilityLabel|accessibilityHint|accessibilityValue/.test(f.content)
+  );
+  if (viewFiles.length > 0 && !hasAccessibility) {
+    infos.push({
+      level: "info",
+      message: "No accessibility labels detected",
+      hint: "Add .accessibilityLabel() and .accessibilityHint() to interactive elements for VoiceOver support.",
+    });
+  } else if (hasAccessibility) {
+    passed.push("Accessibility labels present");
+  }
+
+  // 14. Error handling — no fatalError in production paths
+  const hasFatalError = swiftFiles.some(
+    (f) => /\bfatalError\b/.test(f.content) && !/#Preview/.test(f.content)
+  );
+  if (hasFatalError) {
+    warnings.push({
+      level: "warning",
+      message: "Contains fatalError() in production code",
+      hint: "Use typed Error enums with LocalizedError instead of fatalError() for recoverable errors.",
+    });
+  } else if (swiftFiles.length > 0) {
+    passed.push("No fatalError in production code");
+  }
+
+  // 15. Placeholder / stub detection
+  const STUB_RE = /\/\/\s*\.\.\.\s*(rest|TODO|truncated|add|implement)/i;
+  for (const f of swiftFiles) {
+    if (STUB_RE.test(f.content)) {
+      warnings.push({
+        level: "warning",
+        message: `Possible stub/truncation in ${f.path}`,
+        file: f.path,
+        hint: "File may contain incomplete code marked with truncation comments.",
+      });
+    }
+  }
+
+  // 16. Haptic feedback on primary actions
+  const hasSensoryFeedback = swiftFiles.some((f) => /\.sensoryFeedback/.test(f.content));
+  if (viewFiles.length > 3 && !hasSensoryFeedback) {
+    infos.push({
+      level: "info",
+      message: "No haptic feedback detected",
+      hint: "Apple Design Award-quality apps use .sensoryFeedback() on primary actions for tactile response.",
+    });
+  } else if (hasSensoryFeedback) {
+    passed.push("Haptic feedback (.sensoryFeedback)");
+  }
+
   return { errors, warnings, infos, passed };
 }
 

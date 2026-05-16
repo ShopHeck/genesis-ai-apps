@@ -467,7 +467,7 @@ function validateProject(project: unknown): string | null {
   if (!hasContentView) return "Missing ContentView.swift.";
   if (!hasTheme) return "Missing Core/Theme.swift.";
   const PLACEHOLDER_RE = /\b(lorem ipsum|placeholder|item \d+|example\.com|todo:)\b/i;
-  const TRUNCATION_RE = /\/\/\s*\.\.\.\s*(rest of|TODO|truncated)/i;
+  const TRUNCATION_RE = /\/\/\s*\.\.\.\s*(rest|TODO|truncated|add|implement)/i;
   for (const f of p.files as { path: string; content: string }[]) {
     if (typeof f.content !== "string" || f.content.trim().length < 30) {
       return `File ${f.path} is empty or too short.`;
@@ -492,14 +492,31 @@ function buildReviewManifest(project: { files: { path: string; content: string }
     .filter((f) => keyFiles.some((k) => f.path.endsWith(k)))
     .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 2000)}\n\`\`\``)
     .join("\n\n");
+
+  const storeAndServiceFiles = project.files
+    .filter((f) => f.path.endsWith(".swift") && /(Store|Service|Manager|Repository)\.swift$/.test(f.path))
+    .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 1500)}\n\`\`\``)
+    .join("\n\n");
+
   const shortFiles = project.files
     .filter((f) => f.path.endsWith(".swift") && f.content.trim().split("\n").length < 20)
     .map((f) => `- ${f.path} (${f.content.trim().split("\n").length} lines)`);
+
+  const deprecatedPatterns: string[] = [];
+  for (const f of project.files) {
+    if (!f.path.endsWith(".swift")) continue;
+    if (/\bObservableObject\b/.test(f.content)) deprecatedPatterns.push(`- ${f.path}: uses ObservableObject (should use @Observable)`);
+    if (/\bNavigationView\b/.test(f.content)) deprecatedPatterns.push(`- ${f.path}: uses NavigationView (should use NavigationStack)`);
+    if (/\bimport CoreData\b/.test(f.content)) deprecatedPatterns.push(`- ${f.path}: uses CoreData (should use SwiftData)`);
+  }
+
   return [
     `## Acceptance Criteria\n${(plan.acceptanceCriteria as string[] ?? []).map((c) => `- ${c}`).join("\n")}`,
     `## File Manifest (${project.files.length} files)\n${filePaths}`,
     shortFiles.length > 0 ? `## Suspiciously Short Files\n${shortFiles.join("\n")}` : "",
+    deprecatedPatterns.length > 0 ? `## Deprecated Patterns Found\n${deprecatedPatterns.join("\n")}` : "",
     `## Key File Contents\n${keyContents}`,
+    storeAndServiceFiles ? `## Store & Service Files\n${storeAndServiceFiles}` : "",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -594,7 +611,7 @@ async function generate(
   let project = engineer.toolArgs as { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string };
 
   // Phase 4: Reviewer
-  enqueue("progress", { phase: "bundling", message: `${tag} reviewer — checking acceptance criteria…`, percent: 80 });
+  enqueue("progress", { phase: "bundling", message: `${tag} reviewer — checking ${(plan.acceptanceCriteria as string[] ?? []).length} acceptance criteria…`, percent: 80 });
   const manifest = buildReviewManifest(project, plan);
   let review: { approved: boolean; blockers: { file: string; issue: string; fix: string }[]; score: number; summary: string } | null = null;
   try {
@@ -610,7 +627,8 @@ async function generate(
 
   // Phase 5: Refiner (if blockers found)
   if (review && !review.approved && review.blockers.length > 0) {
-    enqueue("progress", { phase: "bundling", message: `${tag} refiner — patching ${review.blockers.length} issue(s)…`, percent: 88 });
+    const blockerSummary = review.blockers.slice(0, 3).map((b) => b.issue.slice(0, 60)).join("; ");
+    enqueue("progress", { phase: "bundling", message: `${tag} refiner — patching ${review.blockers.length} issue(s): ${blockerSummary}`, percent: 88 });
     const blockerFiles = new Set(review.blockers.map((b) => b.file).filter((f) => f !== "project-level"));
     const filesToPatch = project.files.filter((f) => blockerFiles.has(f.path));
     const issueList = review.blockers.map((b) => `• [${b.file}] ${b.issue}\n  Fix: ${b.fix}`).join("\n");

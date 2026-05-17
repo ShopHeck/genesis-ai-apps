@@ -15,7 +15,7 @@ description: Test ApexBuild (genesis-ai-apps) frontend end-to-end. Use when veri
 ## Starting the Dev Server
 
 ```bash
-cd /home/ubuntu/genesis-ai-apps
+cd /home/ubuntu/repos/genesis-ai-apps
 npm run dev
 # Serves at http://localhost:8080/ (or 8081 if 8080 is in use)
 ```
@@ -51,7 +51,7 @@ The anon key is stored as a permanent repo-scoped Devin secret. Check `/run/repo
 - On production/Netlify preview: open DevTools Network tab, navigate between pages, confirm separate JS chunks load on demand
 
 ### 3. Generator Page (`/generator`)
-- 30 curated templates visible ("30 curated · click to load" label)
+- 30 curated templates visible ("30 curated \u00b7 click to load" label)
 - Click any template card -> prompt textarea fills with template description
 - Selected template shows checkmark indicator (blue circle with Check icon, top-right of card)
 - Provider selector shows "Gemini" as default
@@ -83,6 +83,21 @@ console.log(allText.includes('Lunar mood journal')); // should be false
 
 **This flow IS testable** when the Supabase anon key is configured in `.env` and the Gemini API key is set in Supabase secrets.
 
+#### Pipeline Architecture (as of PR #16/#17)
+The generation pipeline has been optimized for speed:
+- **Phases 1-3 (blocking)**: Architect (gemini-2.5-flash) -> Designer -> Engineer (gemini-2.5-pro)
+- **Phases 4-5 (deferred)**: Reviewer + Refiner run async AFTER the project result is streamed to the user
+- The user sees the project immediately after the Engineer phase completes
+- If the Reviewer finds issues, a `patch` SSE event hot-swaps the files in the UI
+- If approved without changes, a `review` SSE event shows the quality score
+
+#### SSE Event Types
+- `progress` — phase updates with percent, message
+- `result` — project data (files, appName, bundleId, summary)
+- `patch` — deferred review patches (files array, reviewScore, reviewSummary)
+- `review` — review-only result (reviewScore, reviewSummary, no file changes)
+- `error` — generation failure
+
 #### Steps:
 1. Clear `apexbuild_anon_uses` from localStorage (browser console: `localStorage.removeItem('apexbuild_anon_uses')`)
 2. Navigate to `/generator`
@@ -97,7 +112,7 @@ console.log(allText.includes('Lunar mood journal')); // should be false
    - Progress bar fills
    - 3-step indicator: Analyzing -> Generating -> Bundling
    - Terminal log panel shows real SSE messages from Gemini pipeline
-6. Wait for completion (20-60 seconds typical)
+6. Wait for completion (60-120 seconds typical with speed optimizations)
 7. On success, verify:
    - Project header with PascalCase app name
    - "READY FOR XCODE" badge
@@ -107,17 +122,23 @@ console.log(allText.includes('Lunar mood journal')); // should be false
    - Code viewer with first file auto-selected
    - "Download .zip" button
    - Interactive preview section
+8. After result appears, watch for deferred review:
+   - Terminal log may show "[reviewer]" messages
+   - Toast "Review complete \u2014 files updated with quality fixes" if patches applied
+   - Or quality score log entry if approved without changes
 
 #### Handling Gemini API Errors:
 - **503 "high demand"**: This is a transient Google-side issue. Wait 30-60 seconds and retry. Try a simpler prompt if complex ones keep failing. This is NOT an ApexBuild bug.
-- **401/403**: Check that the Gemini API key is correctly set in Supabase secrets (not in `.env` — it's a server-side secret)
+- **401/403**: Check that the Gemini API key is correctly set in Supabase secrets (not in `.env` \u2014 it's a server-side secret)
 - **Rate limit**: The edge function has a 5 req/min rate limit per IP. Wait if you hit it.
+- **"model did not return a tool call \u2014 retrying"**: Flash model returned text instead of functionCall. The fix (PR #17) auto-retries this. If it persists after 3 retries, it's a transient Gemini issue.
+- **"File ... contains placeholder content"**: Validation error where the Engineer generates files with placeholder/stub content. This is a pre-existing quality issue, not a pipeline bug. Retrying with a simpler prompt may help.
 - Failed generations do NOT count against the anonymous usage quota (correct behavior)
 
 #### Tips:
 - Simpler prompts (e.g., "A simple todo list app") are less likely to hit Gemini capacity limits than complex template prompts
-- The generation pipeline has 5 phases: Architect -> Designer -> Engineer -> Reviewer -> Refiner
 - Each phase calls Gemini separately, so a 503 can occur at any phase
+- For Playwright-based testing, use CDP at `http://localhost:29229` to connect to the running browser
 
 ### 5. Pricing Page (`/pricing`)
 - Three tiers: Free ($0/mo), Pro ($29/mo), Studio ($99/mo)
@@ -178,9 +199,11 @@ When generation fails, verify:
 - **Rate limiting**: Server-side IP rate limiting (5 req/min) on the generation endpoint.
 - **JWT verification**: Edge function JWT verification is configured via `supabase/config.toml` (`verify_jwt = false` for anonymous access).
 - **Netlify preview blank page**: The React app requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to initialize. Without these env vars in Netlify project settings, the preview renders a blank page with empty `#root` div. Use local dev server as fallback.
+- **Placeholder content validation**: The Engineer (gemini-2.5-pro) sometimes generates files with placeholder/stub content that fails the `validateProject()` check. This is intermittent and more common with complex prompts.
 
 ## Devin Secrets Needed
 
-- `VITE_SUPABASE_ANON_KEY` (repo-scoped, permanent) — Supabase anonymous/public key. Required for `.env` setup.
-- The Gemini API key is configured directly in Supabase secrets (not as a Devin secret) — confirm with the user that it's set.
+- `VITE_SUPABASE_ANON_KEY` (repo-scoped, permanent) \u2014 Supabase anonymous/public key. Required for `.env` setup.
+- The Gemini API key is configured directly in Supabase secrets (not as a Devin secret) \u2014 confirm with the user that it's set.
+- `NETLIFY_AUTH_TOKEN` (org-scoped, permanent) \u2014 for Netlify CLI operations (env vars, deploys).
 - For payment testing: `STRIPE_SECRET_KEY` would be needed (not currently configured).

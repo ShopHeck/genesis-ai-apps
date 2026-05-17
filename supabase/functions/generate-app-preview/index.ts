@@ -104,7 +104,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, appName, summary, plan, fileManifest } = await req.json();
+    const { prompt, appName, summary, plan, fileManifest, sourceCode } = await req.json();
     if (!prompt) {
       return new Response(JSON.stringify({ error: "Missing prompt" }), {
         status: 400,
@@ -146,6 +146,10 @@ Deno.serve(async (req: Request) => {
       ? `\n\n## Generated Project Files (reference for screen names and data models)\n${fileManifest}`
       : "";
 
+    const sourceCodeContext = sourceCode
+      ? `\n\n## Actual Swift Source Code (match your preview to this code exactly)\nThe engineer generated these Swift files. Your preview MUST match the UI structure, colors, layouts, and data shown in this code. Do not re-imagine — faithfully reproduce what this code renders.\n\n\`\`\`swift\n${(sourceCode as string).slice(0, 12000)}\n\`\`\``
+      : "";
+
     const dataModelInfo = (plan?.dataModel as { name: string; fields: { name: string; type: string }[] }[] ?? [])
       .map((m) => `- **${m.name}**: ${m.fields.map((f) => `${f.name}(${f.type})`).join(", ")}`)
       .join("\n");
@@ -172,7 +176,7 @@ Original idea:
 """
 ${prompt}
 """
-${planContext}${fileManifestContext}
+${planContext}${fileManifestContext}${sourceCodeContext}
 
 Requirements:
 - Responsive layout for mobile (\u2264480px), tablet (481-900px), desktop (\u2265901px)
@@ -194,7 +198,7 @@ Requirements:
         model: DEFAULT_MODELS[provider].engineer,
         system: SYSTEM_PROMPT,
         userMessage,
-        maxTokens: 32000,
+        maxTokens: 65536,
       });
     } catch (e) {
       if (e instanceof AIError) {

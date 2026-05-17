@@ -308,6 +308,18 @@ export default function Generator() {
         .map((f) => f.path)
         .join("\n");
 
+      const keyFiles = project.files
+        .filter((f) =>
+          f.path.endsWith("Theme.swift") ||
+          f.path.endsWith("ContentView.swift") ||
+          f.path.match(/Features\/.*View\.swift$/) ||
+          f.path.match(/Models?\/.*\.swift$/) ||
+          f.path.match(/Store\.swift$/)
+        )
+        .slice(0, 8)
+        .map((f) => `// === ${f.path} ===\n${f.content.slice(0, 2000)}`)
+        .join("\n\n");
+
       const { data, error: fnErr } = await supabase.functions.invoke("generate-app-preview", {
         body: {
           prompt: lastPromptUsed || prompt,
@@ -315,6 +327,7 @@ export default function Generator() {
           summary: project.summary,
           plan: project.plan ?? null,
           fileManifest,
+          sourceCode: keyFiles || undefined,
         },
       });
       if (fnErr) throw new Error(fnErr.message);

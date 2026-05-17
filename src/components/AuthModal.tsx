@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Loader2, Mail, X, Chrome } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,17 @@ export default function AuthModal({ open, onClose, reason }: AuthModalProps) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+    })
+      .then((r) => r.json())
+      .then((d) => setGoogleEnabled(d?.external?.google === true))
+      .catch(() => {});
+  }, [open]);
 
   if (!open) return null;
 
@@ -38,6 +49,10 @@ export default function AuthModal({ open, onClose, reason }: AuthModalProps) {
   };
 
   const handleGoogle = async () => {
+    if (!googleEnabled) {
+      toast.error("Google sign-in is not configured yet. Use magic link instead.");
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/generator` },
@@ -113,8 +128,9 @@ export default function AuthModal({ open, onClose, reason }: AuthModalProps) {
             <Button
               type="button"
               variant="outline"
-              className="w-full border-border/60 hover:bg-card/60"
+              className={`w-full border-border/60 hover:bg-card/60 ${!googleEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleGoogle}
+              title={!googleEnabled ? 'Google sign-in not configured' : undefined}
             >
               <Chrome size={16} className="mr-2" />
               Continue with Google

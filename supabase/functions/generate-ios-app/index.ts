@@ -241,7 +241,6 @@ Anti-patterns that will fail this bar:
 - Default SystemGroupedBackground list cells without any customization
 - Plain NavigationBarTitle with no custom font or color
 - SF symbols tinted only in system blue
-- "Item 1", "Item 2" or "Lorem ipsum" anywhere in the output
 - Empty states that just say "No items yet" with no illustration and no CTA
 - Missing haptic feedback on primary actions (like saving, completing, deleting)
 - No loading states — every async operation needs skeleton or shimmer
@@ -256,8 +255,19 @@ Anti-patterns that will fail this bar:
 - TipKit for contextual first-run hints. AppIntents/Shortcuts if concept materially benefits.
 - Microcopy is warm, specific, on-brand. No generic filler.
 
+# AUTOMATED REJECTION — your output is checked by a validator. It will be REJECTED if ANY of these appear:
+- The word "placeholder" (case-insensitive) in any .swift file under Features/ or Core/
+- "Lorem ipsum" anywhere
+- Generic seed data like "Item 1", "Item 2", "Sample Item", "Test Item", "Example" as user-visible text
+- "example.com" in any URL or string literal
+- Truncation markers: "// ... rest", "// TODO: implement", "// TODO: add", "// add remaining"
+- Comments containing "// TODO" followed by an action verb (implement, add, fix, complete, finish, handle, wire, connect, update)
+- Any file shorter than 30 characters
+- Any Swift file under Features/ or Core/ with fewer than 60 non-whitespace lines
+Instead of placeholders, use REAL data from the architect's plan — the seedData field has concrete items with real names and values. Use those EXACT items. Invent additional realistic items if needed. Every string visible to the user must be specific and on-brand.
+
 # Output contract — CRITICAL
-Call "emit_xcode_project" exactly once. Files must be COMPLETE — no "// ...", no TODO stubs in core paths, no truncation. Every Swift file must compile under Swift 6 strict concurrency in a fresh Xcode 16 project.
+Call "emit_xcode_project" exactly once. Files must be COMPLETE — no "// ...", no TODO stubs, no truncation. Every Swift file must compile under Swift 6 strict concurrency in a fresh Xcode 16 project.
 
 Mandatory files:
 - README.md — what was built, screen list, signature feature, Xcode 16 + \`xcodegen generate\` instructions, any post-install notes.
@@ -450,41 +460,112 @@ function formatUserError(err: unknown): string {
 // ─────────────────────────────────────────────────────────────
 // Server-side project validation
 // ─────────────────────────────────────────────────────────────
-function validateProject(project: unknown): string | null {
-  if (!project || typeof project !== "object") return "Invalid project payload.";
+// Validation returns an object: hard errors are fatal, soft issues are healable.
+interface ValidationResult {
+  hardError: string | null;      // structural problem — cannot proceed
+  softIssues: { file: string; issue: string }[];  // content quality — can be auto-healed
+}
+
+function validateProject(project: unknown): ValidationResult {
+  const result: ValidationResult = { hardError: null, softIssues: [] };
+  if (!project || typeof project !== "object") { result.hardError = "Invalid project payload."; return result; }
   const p = project as { files?: unknown[] };
   if (!Array.isArray(p.files) || p.files.length < 16) {
-    return `AI returned an incomplete project (need 16+ files, got ${(p.files as unknown[])?.length ?? 0}). Try again.`;
+    result.hardError = `AI returned an incomplete project (need 16+ files, got ${(p.files as unknown[])?.length ?? 0}). Try again.`;
+    return result;
   }
   const paths = new Set<string>((p.files as { path: string }[]).map((f) => f.path));
   for (const r of ["README.md", "project.yml", ".gitignore"]) {
-    if (!paths.has(r)) return `Missing required file: ${r}`;
+    if (!paths.has(r)) { result.hardError = `Missing required file: ${r}`; return result; }
   }
   const hasAppEntry = [...paths].some((p) => /Sources\/.*App\.swift$/.test(p));
   const hasContentView = [...paths].some((p) => p.endsWith("Sources/ContentView.swift"));
   const hasTheme = [...paths].some((p) => p.endsWith("Theme.swift"));
-  if (!hasAppEntry) return "Missing @main App entry file.";
-  if (!hasContentView) return "Missing ContentView.swift.";
-  if (!hasTheme) return "Missing Core/Theme.swift.";
-  const PLACEHOLDER_RE = /\b(lorem ipsum|placeholder|item \d+|example\.com|todo:)\b/i;
+  if (!hasAppEntry) { result.hardError = "Missing @main App entry file."; return result; }
+  if (!hasContentView) { result.hardError = "Missing ContentView.swift."; return result; }
+  if (!hasTheme) { result.hardError = "Missing Core/Theme.swift."; return result; }
+
+  // Content quality checks — these are healable (soft issues)
+  const PLACEHOLDER_RE = /\b(lorem ipsum|placeholder|sample item|test item)\b/i;
+  const GENERIC_DATA_RE = /"Item \d+"|"Example[^"]*"|"example\.com"/;
   const TRUNCATION_RE = /\/\/\s*\.\.\.\s*(rest|TODO|truncated|add|implement)/i;
+  const TODO_ACTION_RE = /\/\/\s*TODO:\s*(implement|add|fix|complete|finish|handle|wire|connect|update)/i;
   for (const f of p.files as { path: string; content: string }[]) {
     if (typeof f.content !== "string" || f.content.trim().length < 30) {
-      return `File ${f.path} is empty or too short.`;
+      result.softIssues.push({ file: f.path, issue: "File is empty or too short (< 30 chars)." });
+      continue;
     }
     if (TRUNCATION_RE.test(f.content)) {
-      return `File ${f.path} contains a truncation marker.`;
+      result.softIssues.push({ file: f.path, issue: `Contains truncation marker: ${f.content.match(TRUNCATION_RE)?.[0]}` });
     }
-    if (f.path.endsWith(".swift") && f.path.match(/Features|Core\/Components|Core\/Theme/) && PLACEHOLDER_RE.test(f.content)) {
-      return `File ${f.path} contains placeholder content. Use real seed data from the plan.`;
+    if (f.path.endsWith(".swift") && f.path.match(/Features|Core\/Components|Core\/Theme/)) {
+      if (PLACEHOLDER_RE.test(f.content)) {
+        result.softIssues.push({ file: f.path, issue: `Contains placeholder text: ${f.content.match(PLACEHOLDER_RE)?.[0]}` });
+      }
+      if (GENERIC_DATA_RE.test(f.content)) {
+        result.softIssues.push({ file: f.path, issue: `Contains generic data: ${f.content.match(GENERIC_DATA_RE)?.[0]}` });
+      }
+      if (TODO_ACTION_RE.test(f.content)) {
+        result.softIssues.push({ file: f.path, issue: `Contains TODO stub: ${f.content.match(TODO_ACTION_RE)?.[0]}` });
+      }
+      // Check minimum line count for substantive files
+      const nonWhitespaceLines = f.content.split("\n").filter((l) => l.trim().length > 0).length;
+      if (nonWhitespaceLines < 60) {
+        result.softIssues.push({ file: f.path, issue: `Only ${nonWhitespaceLines} non-whitespace lines (need ≥ 60).` });
+      }
     }
   }
-  return null;
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────
 // Build reviewer manifest (condensed view of the project)
 // ─────────────────────────────────────────────────────────────
+// ── Auto-heal: re-prompt Engineer to fix specific files ──
+async function healProject(
+  project: { files: { path: string; content: string }[]; appName: string; bundleId: string; summary: string },
+  issues: { file: string; issue: string }[],
+  plan: Record<string, unknown>,
+  provider: Provider,
+  apiKey: string,
+  enqueue: (type: string, data: Record<string, unknown>) => void,
+): Promise<typeof project> {
+  const models = DEFAULT_MODELS[provider];
+  const fallbacks = FALLBACK_MODELS[provider];
+  const affectedPaths = new Set(issues.map((i) => i.file));
+  const filesToFix = project.files.filter((f) => affectedPaths.has(f.path));
+  if (filesToFix.length === 0) return project;
+
+  const issueList = issues.map((i) => `• [${i.file}] ${i.issue}`).join("\n");
+  enqueue("progress", {
+    phase: "healing",
+    message: `[healer] fixing ${issues.length} quality issue(s) in ${filesToFix.length} file(s)…`,
+    percent: -1,
+  });
+
+  try {
+    const healer = await callWithFallback({
+      provider, apiKey, model: models.engineer,
+      system: `You are a Principal iOS Engineer fixing quality issues in generated Swift files. You receive a list of issues and the affected files. Output ONLY the fixed files using emit_patches. Each file must be COMPLETE (no truncation). Replace ALL placeholder content, generic data, and TODO stubs with real, production-quality code using the seed data from the plan. Every patched Swift file must have at least 60 non-whitespace lines of real code.`,
+      userMessage: `These files failed automated quality validation:\n${issueList}\n\nArchitect's plan (use seedData for real content):\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFiles to fix:\n${filesToFix.map((f) => `### ${f.path}\n\`\`\`swift\n${f.content}\n\`\`\``).join("\n\n")}\n\nReturn the complete fixed files using emit_patches. Every file must be fully implemented — no placeholders, no TODO stubs, no generic data. Use the exact seed data items from the plan.`,
+      tool: toAITool(TOOL_PATCH),
+      maxTokens: 16000,
+      timeoutMs: 120_000,
+    }, fallbacks.engineer, enqueue, "Healer");
+    const patches = ((healer.toolArgs?.patches ?? []) as { path: string; content: string }[]);
+    if (patches.length > 0) {
+      const patchMap = new Map(patches.map((p) => [p.path, p.content]));
+      return {
+        ...project,
+        files: project.files.map((f) => patchMap.has(f.path) ? { ...f, content: patchMap.get(f.path)! } : f),
+      };
+    }
+  } catch {
+    enqueue("progress", { phase: "healing", message: "[healer] auto-fix failed — continuing with original files", percent: -1 });
+  }
+  return project;
+}
+
 function buildReviewManifest(project: { files: { path: string; content: string }[] }, plan: Record<string, unknown>): string {
   const filePaths = project.files.map((f) => f.path).join("\n");
   const keyFiles = ["Theme.swift", "App.swift", "ContentView.swift"];
@@ -792,16 +873,33 @@ Deno.serve(async (req: Request) => {
         enqueue("progress", { phase: "analyzing", message: "> prompt received — initializing pipeline…", percent: 5 });
 
         // ── Phases 1-3: generate the project (Architect → Engineer) ──
-        const { project, plan } = await generateProject(prompt, provider, apiKey, enqueue);
+        const generated = await generateProject(prompt, provider, apiKey, enqueue);
+        let project = generated.project;
+        const plan = generated.plan;
 
         enqueue("progress", { phase: "bundling", message: "[bundler] validating project structure…", percent: 93 });
-        const validationError = validateProject(project);
-        if (validationError) throw new Error(validationError);
+        let validation = validateProject(project);
+        if (validation.hardError) throw new Error(validation.hardError);
+
+        // Auto-heal soft issues (placeholder content, short files, TODO stubs)
+        if (validation.softIssues.length > 0) {
+          enqueue("progress", { phase: "healing", message: `[validator] found ${validation.softIssues.length} quality issue(s) — auto-fixing…`, percent: 94 });
+          project = await healProject(project, validation.softIssues, plan, provider, apiKey, enqueue);
+
+          // Re-validate after healing
+          validation = validateProject(project);
+          if (validation.hardError) throw new Error(validation.hardError);
+          if (validation.softIssues.length > 0) {
+            enqueue("progress", { phase: "healing", message: `[validator] ${validation.softIssues.length} issue(s) remain after auto-fix — streaming anyway`, percent: 96 });
+          } else {
+            enqueue("progress", { phase: "healing", message: "[validator] all quality issues resolved", percent: 97 });
+          }
+        }
 
         const p = project as Record<string, unknown>;
         p.plan = plan;
 
-        // ── Stream result immediately — user sees the project NOW ──
+        // ── Stream result — user sees the project NOW ──
         enqueue("progress", { phase: "done", message: "[done] project ready", percent: 100 });
         enqueue("result", { project });
 

@@ -20,32 +20,43 @@ const corsHeaders = {
 // ─────────────────────────────────────────────────────────────
 // PHASE 1: ARCHITECT
 // ─────────────────────────────────────────────────────────────
-const ARCHITECT_PROMPT = `You are a Staff iOS Product Architect. Given a one-line app idea, produce a focused, buildable plan.
+const ARCHITECT_PROMPT = `You are a Staff iOS Product Architect who has shipped Apple Design Award-winning apps. Given a one-line app idea, produce a focused, opinionated product plan.
 
-Keep the plan SMALL and CONCRETE — the engineer must implement everything you specify in a single pass.
+Think like an Apple Design Award judge. Be specific and concrete — the engineer implements exactly what you specify.
 
 You MUST call "emit_app_plan" exactly once with:
 - appName (PascalCase Swift identifier)
 - bundleId (reverse-DNS, lowercased)
-- tagline (one sentence)
-- signatureFeature (the single standout feature, 1 sentence)
-- accentColorHex (sRGB hex)
-- visualPersonality (2-3 adjectives + 1 sentence on the vibe)
-- designSystem: tokens the engineer implements in Theme.swift
-  - accentColorHex, backgroundPrimary, backgroundSecondary, surfaceColor, textPrimary, textSecondary: hex values
-  - cornerRadiusSmall (4-8), cornerRadiusMedium (12-16), cornerRadiusLarge (24-32)
-  - fontStyle: "rounded" | "serif" | "monospaced" | "default"
-  - spacingUnit: base grid in pt (e.g. "8")
-  - motionPersonality: one sentence
-- screens: 3-4 screens (NOT more), each with { name, purpose, keyComponents[], interactions, emptyStateCopy, primaryCTA }
-- dataModel: 1-2 SwiftData @Model entities with { name, fields [{name, type}], relationships }
+- tagline (one sentence, evocative)
+- signatureFeature (the single standout feature that makes this app memorable, 1-2 sentences)
+- accentColorHex (sRGB hex matching the concept's mood)
+- visualPersonality (3-5 adjectives + 1 sentence describing the materials/typography vibe — e.g. "warm, tactile, organic — like handmade paper with rounded edges and soft shadows")
+- designSystem: tokens the engineer MUST implement exactly in Theme.swift
+  - accentColorHex, backgroundPrimary, backgroundSecondary, surfaceColor: hex values for the layered dark-mode background stack
+  - textPrimary, textSecondary: hex values
+  - cornerRadiusSmall (4-8pt), cornerRadiusMedium (12-16pt), cornerRadiusLarge (24-32pt)
+  - fontStyle: "rounded" | "serif" | "monospaced" | "default" (maps to SF Pro variants)
+  - spacingUnit: base grid spacing in pt (e.g. "8")
+  - motionPersonality: one sentence — e.g. "spring(response:0.38,damping:0.7) everywhere, never ease-in-out"
+- screens: 3-4 screens (NOT more), each with:
+  - name, purpose
+  - keyComponents: array of SPECIFIC, concrete UI elements (not "cards with stats" but "glassmorphic stat card with large SF Pro Rounded number, 12pt label below, radial highlight on tap")
+  - interactions: what tapping/swiping/long-pressing does
+  - emptyStateCopy: specific friendly copy + SF Symbol name
+  - primaryCTA: exact button label and what it does
+- dataModel: 1-2 SwiftData @Model entities with { name, fields [{name, type, notes}], relationships }
 - frameworks: only Apple frameworks actually needed (SwiftUI, SwiftData are implicit). 0-2 extras max.
-- seedData: 3-5 concrete sample records with real names/values (these get hardcoded into previews)
-- userJourneys: 1-2 happy-path flows, 3-4 steps each
-- delightMoments: 2-3 specific micro-interactions (haptics, animations)
-- acceptanceCriteria: 4-6 testable quality gates
+- seedData: 5-8 concrete sample records with REAL names, values, dates, and descriptions — these get hardcoded into the app and make it feel alive on first launch
+- userJourneys: 1-2 happy-path flows, 3-5 steps each
+- delightMoments: 3-4 specific micro-interactions with exact implementation hints:
+  - e.g. ".sensoryFeedback(.success) on save", "matchedGeometryEffect hero transition from list to detail", "staggered list entrance with .spring(response:0.4)"
+- acceptanceCriteria: 5-7 concrete, testable quality gates, e.g.:
+  - "Every screen has a populated state with ≥3 seed data items visible"
+  - "All primary action buttons trigger .sensoryFeedback(.success)"
+  - "Empty states have a specific SF Symbol, friendly copy, and a CTA button"
+  - "Theme.swift exports accentColor matching the plan's hex exactly"
 
-CRITICAL: Keep it small. 3-4 screens, 1-2 models, minimal frameworks. The engineer has limited output capacity — a bloated plan causes truncated, placeholder-filled code. A tight plan produces a polished, complete app.`;
+Scope constraint: Keep it to 3-4 screens, 1-2 models, minimal frameworks. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan with 6+ screens produces truncated garbage.`;
 
 const TOOL_PLAN = {
   type: "function",
@@ -208,39 +219,62 @@ const TOOL_DESIGN = {
 // ─────────────────────────────────────────────────────────────
 // PHASE 3: ENGINEER
 // ─────────────────────────────────────────────────────────────
-const ENGINEER_PROMPT = `You are a Principal iOS Engineer building a complete SwiftUI app for Xcode 16 / iOS 18+.
+const ENGINEER_PROMPT = `You are a Principal iOS Engineer + Product Designer shipping production-grade SwiftUI apps for Xcode 16 / iOS 18+. Your output quality should match apps like Things 3, Bear, Linear, or Streaks.
 
-# Rules
+# Engineering rules (non-negotiable)
 - Pure SwiftUI. @main App struct.
-- @Observable (NOT ObservableObject). @MainActor on view models.
-- SwiftData @Model for persistence. NavigationStack (NOT NavigationView).
-- Theme.swift: implement ALL design tokens from the architect's plan.
-- One type per file. Keep view bodies under ~60 lines — extract subviews.
+- Swift 6 strict concurrency. @Observable (NEVER ObservableObject). @MainActor on view models.
+- State: @State, @Bindable, @Environment. Persistence: SwiftData (@Model, @Query, ModelContainer). NEVER CoreData.
+- Navigation: NavigationStack + value-based .navigationDestination(for:). NEVER NavigationView.
+- Accessibility: .accessibilityLabel on all interactive elements, Dynamic Type support.
+- One type per file. Extract subviews when body exceeds ~50 lines.
 
-# CRITICAL — your output is checked by an automated validator
+# Visual polish (what separates good from great)
+- Theme.swift: implement ALL design tokens from the plan — colors, corner radii, spacing, typography helpers, motion presets. Every view references Theme, never hardcoded values.
+- Custom typography: use .fontDesign(.rounded/.serif/.monospaced) to match the plan's fontStyle.
+- SF Symbols 6: use .symbolEffect(.bounce) on key moments, .symbolRenderingMode(.hierarchical) for depth.
+- Layered surfaces: use the plan's backgroundPrimary/Secondary/surface for visual depth. Add subtle .shadow or .ultraThinMaterial for glassmorphism where appropriate.
+- Motion: spring animations (.snappy, .bouncy) for entrances, matchedGeometryEffect for hero transitions, .sensoryFeedback(.success/.impact/.warning) on all primary actions.
+- Empty states: every screen has a designed empty state with a specific SF Symbol (large, secondary color), friendly copy, and a prominent CTA button.
+- Loading states: use shimmer/skeleton placeholders (ProgressView is not enough).
+- List entrances: stagger with .animation(.spring.delay(Double(index) * 0.05)).
+
+# Anti-patterns that FAIL the quality bar
+- Default List cells with no customization — use custom row views with padding, rounded corners, and the theme's surface color
+- Plain .navigationTitle with no personality — add custom header views or styled inline titles
+- SF Symbols in system blue only — tint with the theme's accent color
+- Empty states that just say "No items yet" — add illustration (SF Symbol), warm copy, and CTA
+- Buttons without .sensoryFeedback — every primary action needs haptics
+- Generic "Delete" confirmations — use specific copy: "Delete 'Morning Run'?"
+- Identical card layouts on every screen — each screen should have its own visual identity
+
+# AUTOMATED REJECTION — your output is checked by a validator
 The validator REJECTS files containing:
 - The word "placeholder" (case-insensitive)
-- "Lorem ipsum"
+- "Lorem ipsum" anywhere
 - Generic data: "Item 1", "Sample Item", "Test Item", "Example", "example.com"
-- Truncation: "// ... rest", "// TODO: implement", "// add remaining"
+- Truncation markers: "// ... rest", "// TODO: implement", "// add remaining"
+- Comments with "// TODO" followed by action verbs (implement, add, fix, complete, handle)
 - Any file shorter than 30 characters
-Instead, use REAL data from the architect's seedData. Use those exact items. Invent realistic extras if needed.
+Instead, use REAL data from the architect's seedData. Use those EXACT items. Invent realistic extras if needed. Every user-visible string must be specific and on-brand.
 
 # Output contract
 Call "emit_xcode_project" exactly once with 16-24 COMPLETE files.
 
 Required files:
-- README.md, project.yml (XcodeGen, iOS 18.0, Swift 6), .gitignore
-- Sources/<AppName>App.swift — @main entry with ModelContainer
-- Sources/ContentView.swift — root navigation
-- Sources/Core/Theme.swift — all design tokens from plan
-- Sources/Core/Components/ — 2-3 reusable components
-- Sources/Features/<Feature>/ — views, models, stores with real logic and seed data
-- Sources/Resources/Assets.xcassets/ — Contents.json, AppIcon, AccentColor
+- README.md — what was built, screens, signature feature, Xcode 16 + xcodegen instructions.
+- project.yml — XcodeGen spec: iOS 18.0, Swift 6, SwiftUI lifecycle, Info.plist usage descriptions.
+- Sources/<AppName>App.swift — @main entry with ModelContainer, seed data insertion on first launch.
+- Sources/ContentView.swift — root TabView or NavigationStack with polished tab/nav bar.
+- Sources/Core/Theme.swift — ALL design tokens: colors, corner radii, spacing scale, typography helpers, motion presets. This is the design system — it must be comprehensive.
+- Sources/Core/Components/*.swift — 3-4 reusable components (e.g. GlassCard, StatTile, EmptyStateView, SectionHeader). These get used across features.
+- Sources/Features/<Feature>/*.swift — views with real layouts, @Observable stores with real logic, @Model types. Use seed data. Each screen must look distinct.
+- Sources/Resources/Assets.xcassets/ — Contents.json, AppIcon.appiconset/Contents.json, AccentColor.colorset/Contents.json
+- .gitignore — standard Xcode.
 
-Every file must be COMPLETE. No stubs, no truncation, no TODO comments. The app must work end-to-end on first launch with seed data visible.
+Every file must be COMPLETE. No stubs, no truncation. The app must be usable end-to-end on first launch: seed data visible, working navigation, working CRUD, haptic feedback, polished animations.
 
-IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones. 16 polished files beats 30 truncated ones.`;
+IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones. 18 polished files beats 30 truncated ones.`;
 
 const TOOL_PROJECT = {
   type: "function",
@@ -276,29 +310,31 @@ const TOOL_PROJECT = {
 // ─────────────────────────────────────────────────────────────
 // PHASE 4: REVIEWER
 // ─────────────────────────────────────────────────────────────
-const REVIEWER_PROMPT = `You are a Senior iOS Quality Reviewer with Apple Design Award experience. You evaluate generated SwiftUI projects against a set of acceptance criteria.
+const REVIEWER_PROMPT = `You are a Senior iOS Quality Reviewer with Apple Design Award experience. You evaluate generated SwiftUI projects for both correctness AND visual polish.
 
 You will receive:
 1. The architect's acceptance criteria
-2. A condensed project manifest (file paths, key file contents)
+2. A condensed project manifest (file paths, key file contents, feature views)
 
-Your job is to identify BLOCKER issues only — things that would cause a build failure, runtime crash, or dramatically poor user experience on first launch. Minor polish issues are not blockers.
+Your job is to identify BLOCKER issues — things that would cause a build failure, runtime crash, or a noticeably low-quality user experience.
 
 Blocker examples:
 - A screen specified in the plan has no corresponding View file
 - A file is empty or has a truncation marker ("// ...")
-- Theme.swift is missing token definitions needed by other files
-- A required framework import is missing from files that use it
+- Theme.swift is missing token definitions (colors, radii, spacing) needed by views
+- Views use hardcoded colors/values instead of Theme references
 - Seed data is generic placeholders ("Item 1", "Lorem ipsum", "example.com")
 - An @Observable store is referenced but not defined
-- A primary action button has no haptic feedback
-- An async path has no loading state
+- Missing .sensoryFeedback on primary action buttons
+- Empty states with no SF Symbol, no CTA, just "No items yet"
+- Default unstyled List cells with no custom row views
+- No animations on list entrances or screen transitions
+- ContentView has no TabView or NavigationStack structure
 
 Do NOT flag:
-- Stylistic preferences
-- Animation tuning
-- Missing nice-to-have features not in the acceptance criteria
-- Minor copy variations
+- Minor copy variations from the plan
+- Specific animation curve preferences
+- Missing features not in the acceptance criteria
 
 Call "emit_review" exactly once.`;
 
@@ -522,6 +558,11 @@ function buildReviewManifest(project: { files: { path: string; content: string }
     .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 2000)}\n\`\`\``)
     .join("\n\n");
 
+  const featureViews = project.files
+    .filter((f) => f.path.endsWith(".swift") && /Features/.*View\.swift$/.test(f.path))
+    .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 1500)}\n\`\`\``)
+    .join("\n\n");
+
   const storeAndServiceFiles = project.files
     .filter((f) => f.path.endsWith(".swift") && /(Store|Service|Manager|Repository)\.swift$/.test(f.path))
     .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 1500)}\n\`\`\``)
@@ -545,6 +586,7 @@ function buildReviewManifest(project: { files: { path: string; content: string }
     shortFiles.length > 0 ? `## Suspiciously Short Files\n${shortFiles.join("\n")}` : "",
     deprecatedPatterns.length > 0 ? `## Deprecated Patterns Found\n${deprecatedPatterns.join("\n")}` : "",
     `## Key File Contents\n${keyContents}`,
+    featureViews ? `## Feature Views\n${featureViews}` : "",
     storeAndServiceFiles ? `## Store & Service Files\n${storeAndServiceFiles}` : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -812,7 +854,7 @@ Deno.serve(async (req: Request) => {
 
   const encoder = new TextEncoder();
   const modelUsed = DEFAULT_MODELS[provider].engineer;
-  const costEstimate = provider === "anthropic" ? 0.25 : provider === "opencode" ? 0.20 : 0.15;
+  const costEstimate = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
   const stream = new ReadableStream({
     async start(controller) {
       const enqueue = (type: string, data: Record<string, unknown>) =>

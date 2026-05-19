@@ -9,6 +9,7 @@ import {
   FileCode2,
   Folder,
   Apple,
+  Globe,
   Wand2,
   AlertTriangle,
   Check,
@@ -43,6 +44,7 @@ import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 export default function Generator() {
   const { user, plan, monthlyUsage } = useAuth();
   const [prompt, setPrompt] = useState("");
+  const [target, setTarget] = useState<"ios" | "web">("ios");
   const [provider, setProvider] = useState<"gemini" | "anthropic" | "opencode">("gemini");
   const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
@@ -134,13 +136,13 @@ export default function Generator() {
     startedAt.current = Date.now();
     setLastPromptUsed(prompt);
     setStage("analyzing");
-    pushLog("system", `> prompt received (${prompt.trim().length} chars)`);
+    pushLog("system", `> prompt received (${prompt.trim().length} chars) — target: ${target}`);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const fnUrl = `${supabaseUrl}/functions/v1/generate-ios-app`;
+      const fnUrl = `${supabaseUrl}/functions/v1/${target === "web" ? "generate-web-app" : "generate-ios-app"}`;
 
       const resp = await fetch(fnUrl, {
         method: "POST",
@@ -413,15 +415,50 @@ export default function Generator() {
 
           <div className="flex items-center gap-2 text-primary text-sm font-medium mb-3">
             <Sparkles size={14} />
-            Describe your iOS app
+            Describe your app
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight mb-2 text-balance">
-            From idea to <span className="gradient-text">Xcode project</span> in seconds
+            From idea to <span className="gradient-text">{target === "web" ? "web app" : "Xcode project"}</span> in seconds
           </h1>
           <p className="text-muted-foreground mb-6 max-w-2xl">
-            Generates a production-grade SwiftUI app following Apple's 2026 best practices —
-            Swift 6 concurrency, @Observable, SwiftData, NavigationStack, and accessibility built in.
+            {target === "web"
+              ? "Generates a production-grade React + Tailwind CSS app with TypeScript, responsive design, animations, and accessibility built in."
+              : "Generates a production-grade SwiftUI app following Apple's 2026 best practices — Swift 6 concurrency, @Observable, SwiftData, NavigationStack, and accessibility built in."
+            }
           </p>
+
+          {/* Target selector */}
+          <div className="flex items-center gap-2 mb-5">
+            <div className="flex items-center gap-1 bg-card/40 rounded-lg p-1 border border-border/40">
+              <button
+                onClick={() => setTarget("ios")}
+                disabled={loading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  target === "ios"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Apple size={13} />
+                iOS App
+              </button>
+              <button
+                onClick={() => setTarget("web")}
+                disabled={loading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  target === "web"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Globe size={13} />
+                Web App
+              </button>
+            </div>
+            <span className="text-[10px] text-muted-foreground/60">
+              {target === "web" ? "React + Tailwind + Vite" : "SwiftUI + Swift 6 + Xcode 16"}
+            </span>
+          </div>
 
           <Textarea
             value={prompt}
@@ -777,10 +814,11 @@ export default function Generator() {
               <div className="glass-panel p-6 flex items-start justify-between gap-6 flex-wrap">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-xs text-primary font-medium mb-1">
-                    <Apple size={12} /> READY FOR XCODE
+                    {target === "web" ? <Globe size={12} /> : <Apple size={12} />}
+                    {target === "web" ? "READY TO DEPLOY" : "READY FOR XCODE"}
                   </div>
                   <h2 className="font-display text-2xl font-bold">{project.appName}</h2>
-                  <p className="text-xs text-muted-foreground font-mono mt-1">{project.bundleId}</p>
+                  {target === "ios" && <p className="text-xs text-muted-foreground font-mono mt-1">{project.bundleId}</p>}
                   <p className="text-sm text-muted-foreground mt-3 max-w-2xl">{project.summary}</p>
                   <p className="text-xs text-muted-foreground/70 mt-2">
                     {project.files.length} files generated
@@ -933,12 +971,14 @@ export default function Generator() {
                 </div>
               </div>
 
-              {/* Xcode Project Export */}
-              <XcodeExportButton
-                project={project}
-                editedFiles={editedFiles}
-                validation={validation}
-              />
+              {/* Xcode Project Export (iOS only) */}
+              {target === "ios" && (
+                <XcodeExportButton
+                  project={project}
+                  editedFiles={editedFiles}
+                  validation={validation}
+                />
+              )}
             </motion.section>
           )}
         </AnimatePresence>

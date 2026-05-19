@@ -59,6 +59,16 @@ The anon key is stored as a permanent repo-scoped Devin secret. Check `/run/repo
 - "Sign in for 3 free builds/mo" link in footer bar
 - Back button navigates to home
 
+#### iOS/Web Target Toggle
+The Generator page has an iOS/Web toggle near the top:
+- Two buttons: phone icon "iOS App" and globe icon "Web App"
+- iOS is selected by default with cyan highlight
+- When iOS selected: heading says "Xcode project", context label shows "SwiftUI + Swift 6 + Xcode 16"
+- When Web selected: heading says "web app", context label shows "React + Tailwind + Vite"
+- Switching targets does NOT clear a generated project
+- iOS-specific elements (Xcode Export, bundle ID, READY FOR XCODE badge) hidden for web
+- Web-specific elements (Live Sandbox, READY TO DEPLOY badge, full-stack badges) hidden for iOS
+
 #### Template Categories
 The 30 templates span 9 categories. When verifying templates, check:
 - **New categories** (added in template overhaul): Creator (5 templates, orange accent), Business (5 templates, green accent), Design (5 templates, teal accent)
@@ -71,39 +81,33 @@ The 30 templates span 9 categories. When verifying templates, check:
 3. Verify checkmark appears only on the currently selected template
 4. Use browser console to verify template count: `document.querySelectorAll('button[title]').length` should return 30 (plus any non-template buttons)
 
-#### Verifying Removed Templates
-If templates were replaced (e.g., oversaturated templates removed), verify via DOM search:
-```javascript
-const allText = Array.from(document.querySelectorAll('button[title]')).map(b => b.title + ' ' + b.textContent).join(' ');
-// Check specific removed template names:
-console.log(allText.includes('Lunar mood journal')); // should be false
-```
-
-### 4. Generation Flow (requires backend credentials)
+### 4. iOS Generation Flow (requires backend credentials)
 
 **This flow IS testable** when the Supabase anon key is configured in `.env` and the Gemini API key is set in Supabase secrets.
 
 #### Pipeline Architecture (as of PR #16/#17)
 The generation pipeline has been optimized for speed:
-- **Phases 1-3 (blocking)**: Architect (gemini-2.5-flash) -> Designer -> Engineer (gemini-2.5-pro)
+- **Phases 1-3 (blocking)**: Architect (gemini-2.5-pro) -> Designer -> Engineer (gemini-2.5-pro)
 - **Phases 4-5 (deferred)**: Reviewer + Refiner run async AFTER the project result is streamed to the user
 - The user sees the project immediately after the Engineer phase completes
 - If the Reviewer finds issues, a `patch` SSE event hot-swaps the files in the UI
 - If approved without changes, a `review` SSE event shows the quality score
+- **Upgrade #1**: Architect selects 4-7 component patterns from a curated library (GlassCard, ShimmerEffect, TiltCard, etc.) and Engineer injects them into generated code
 
 #### SSE Event Types
-- `progress` — phase updates with percent, message
-- `result` — project data (files, appName, bundleId, summary)
-- `patch` — deferred review patches (files array, reviewScore, reviewSummary)
-- `review` — review-only result (reviewScore, reviewSummary, no file changes)
-- `error` — generation failure
+- `progress` \u2014 phase updates with percent, message
+- `result` \u2014 project data (files, appName, bundleId, summary)
+- `patch` \u2014 deferred review patches (files array, reviewScore, reviewSummary)
+- `review` \u2014 review-only result (reviewScore, reviewSummary, no file changes)
+- `error` \u2014 generation failure
 
 #### Steps:
 1. Clear `apexbuild_anon_uses` from localStorage (browser console: `localStorage.removeItem('apexbuild_anon_uses')`)
 2. Navigate to `/generator`
-3. Either select a template or type a custom prompt
-4. Click "Generate App"
-5. Observe progress UI:
+3. Ensure "iOS App" is selected in the toggle
+4. Either select a template or type a custom prompt
+5. Click "Generate App"
+6. Observe progress UI:
    - Button changes to "Generating..." with spinner
    - Textarea and template cards become disabled
    - "BUILDING YOUR APP" section appears below
@@ -112,53 +116,80 @@ The generation pipeline has been optimized for speed:
    - Progress bar fills
    - 3-step indicator: Analyzing -> Generating -> Bundling
    - Terminal log panel shows real SSE messages from Gemini pipeline
-6. Wait for completion (60-120 seconds typical with speed optimizations)
-7. On success, verify:
+7. Wait for completion (60-120 seconds typical)
+8. On success, verify:
    - Project header with PascalCase app name
    - "READY FOR XCODE" badge
    - Bundle ID in reverse-DNS format
-   - File count (expect >=16 files)
+   - File count (expect >=10 files)
    - File tree with folders and .swift files
    - Code viewer with first file auto-selected
-   - "Download .zip" button
+   - "Download .zip" button enabled
    - Interactive preview section
-8. After result appears, watch for deferred review:
+   - Xcode Project Export section with "Export for Xcode" button
+   - NO Live Sandbox panel (iOS only)
+9. After result appears, watch for deferred review:
    - Terminal log may show "[reviewer]" messages
    - Toast "Review complete \u2014 files updated with quality fixes" if patches applied
    - Or quality score log entry if approved without changes
 
-#### Handling Gemini API Errors:
-- **503 "high demand"**: This is a transient Google-side issue. Wait 30-60 seconds and retry. Try a simpler prompt if complex ones keep failing. This is NOT an ApexBuild bug.
-- **401/403**: Check that the Gemini API key is correctly set in Supabase secrets (not in `.env` \u2014 it's a server-side secret)
-- **Rate limit**: The edge function has a 5 req/min rate limit per IP. Wait if you hit it.
-- **"model did not return a tool call \u2014 retrying"**: Flash model returned text instead of functionCall. The fix (PR #17) auto-retries this. If it persists after 3 retries, it's a transient Gemini issue.
-- **"File ... contains placeholder content"**: Validation error where the Engineer generates files with placeholder/stub content. This is a pre-existing quality issue, not a pipeline bug. Retrying with a simpler prompt may help.
-- Failed generations do NOT count against the anonymous usage quota (correct behavior)
+### 5. Web Generation Flow (requires edge function deployment)
 
-#### Tips:
-- Simpler prompts (e.g., "A simple todo list app") are less likely to hit Gemini capacity limits than complex template prompts
-- Each phase calls Gemini separately, so a 503 can occur at any phase
-- For Playwright-based testing, use CDP at `http://localhost:29229` to connect to the running browser
+**IMPORTANT**: The `generate-web-app` and `evaluate-quality` Supabase edge functions must be deployed before this flow works. Without deployment, generation will fail with "Failed to fetch".
 
-### 5. Pricing Page (`/pricing`)
+#### Steps:
+1. Clear `apexbuild_anon_uses` from localStorage
+2. Navigate to `/generator`
+3. Click "Web App" in the toggle
+4. Type a prompt (e.g., "A task management app with user accounts")
+5. Click "Generate App"
+6. Terminal should show "target: web"
+7. On success, verify:
+   - "READY TO DEPLOY" badge (NOT "READY FOR XCODE")
+   - NO bundle ID shown
+   - File tree shows .tsx, .ts, .css, .html files
+   - Summary shows "full-stack with API" badge (if apiRoutes generated)
+   - Summary shows "auth included" badge (if auth generated)
+   - Files include src/lib/api.ts (typed API client)
+   - NO Xcode Export section
+   - "Download .zip" button enabled (NOT blocked by iOS validation)
+
+#### Live Sandbox (web only)
+After web generation completes:
+- "Live Sandbox" panel appears below the AppPreview section
+- Shows "live code" badge in green
+- Status shows "Running" with green checkmark icon
+- Iframe renders with dark background and design system tokens
+- Rebuild button (refresh icon) works
+- Fullscreen button expands sandbox to fill viewport
+- Console toggle shows/hides log panel
+
+#### Quality Score (Upgrade #4)
+After generation completes:
+- "Visual Quality Score" card may appear
+- Shows score with 6-dimension breakdown (visual identity, component richness, animation, content quality, layout, polish)
+- Or shows "Evaluate Quality" button to trigger manual evaluation
+- Requires `evaluate-quality` edge function to be deployed
+
+### 6. Pricing Page (`/pricing`)
 - Three tiers: Free ($0/mo), Pro ($29/mo), Studio ($99/mo)
 - Pro card has "Most popular" badge
 - Feature lists for each tier
 - CTA buttons: "Get started free", "Upgrade to Pro", "Upgrade to Studio"
 - "All plans include" section at bottom
 
-### 6. Dashboard Page (`/dashboard`)
+### 7. Dashboard Page (`/dashboard`)
 - Auth modal appears immediately: "Sign in to view your dashboard"
 - Modal has email input + "Send magic link" button + "Continue with Google"
 - Modal dismissible via X button
 - Behind modal: "Free Plan" and "0/3 builds this month" visible
 - Cannot test authenticated state without test credentials
 
-### 7. 404 Page
+### 8. 404 Page
 - Navigate to any invalid route (e.g., `/nonexistent`)
 - Should show "404" heading + "Oops! Page not found" + "Return to Home" link
 
-### 8. Cross-Page Navigation
+### 9. Cross-Page Navigation
 - Test all navigation paths work without errors:
   - Home -> Generator (CTA or navbar "Start Building")
   - Generator -> Home (Back button)
@@ -167,7 +198,7 @@ The generation pipeline has been optimized for speed:
   - 404 -> Home ("Return to Home")
 - Check console for errors after rapid navigation
 
-### 9. Netlify Preview
+### 10. Netlify Preview
 - If a PR is open, check the Netlify deploy preview URL
 - Format: `https://deploy-preview-{PR_NUMBER}--genesis-ai-apps.netlify.app`
 - **Important**: Netlify preview may render blank if Supabase env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) are not configured in the Netlify project settings. If the preview shows an empty `#root` div, use the local dev server instead.
@@ -200,6 +231,8 @@ When generation fails, verify:
 - **JWT verification**: Edge function JWT verification is configured via `supabase/config.toml` (`verify_jwt = false` for anonymous access).
 - **Netlify preview blank page**: The React app requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to initialize. Without these env vars in Netlify project settings, the preview renders a blank page with empty `#root` div. Use local dev server as fallback.
 - **Placeholder content validation**: The Engineer (gemini-2.5-pro) sometimes generates files with placeholder/stub content that fails the `validateProject()` check. This is intermittent and more common with complex prompts.
+- **Web generation requires edge function deployment**: The `generate-web-app` and `evaluate-quality` edge functions must be deployed to Supabase before web generation or quality scoring works. Without deployment, requests fail with "Failed to fetch".
+- **iOS validation skipped for web**: `validateProject()` only runs for iOS targets. Web projects have separate validation in the edge function.
 
 ## Devin Secrets Needed
 

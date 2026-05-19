@@ -10,6 +10,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
+import { getSelectedPatterns, PATTERN_MENU } from "./component-library.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,6 +56,12 @@ You MUST call "emit_app_plan" exactly once with:
   - "All primary action buttons trigger .sensoryFeedback(.success)"
   - "Empty states have a specific SF Symbol, friendly copy, and a CTA button"
   - "Theme.swift exports accentColor matching the plan's hex exactly"
+- componentPatterns: select 4-7 IDs from the premium component library below that best fit this app. These are production-ready SwiftUI components the engineer will inject verbatim into the project.
+
+Available component patterns:
+${PATTERN_MENU}
+
+You MUST select at least: "glass_card", "staggered_entrance", "empty_state_view", plus 1-4 others that fit the app concept.
 
 Scope constraint: Keep it to 3-4 screens, 1-2 models, minimal frameworks. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan with 6+ screens produces truncated garbage.`;
 
@@ -148,11 +155,16 @@ const TOOL_PLAN = {
         userJourneys: { type: "array", items: { type: "string" } },
         delightMoments: { type: "array", items: { type: "string" } },
         acceptanceCriteria: { type: "array", items: { type: "string" } },
+        componentPatterns: {
+          type: "array",
+          description: "IDs from the premium component library to inject into this project.",
+          items: { type: "string" },
+        },
       },
       required: [
         "appName", "bundleId", "tagline", "signatureFeature", "accentColorHex",
         "visualPersonality", "designSystem", "screens", "dataModel", "frameworks",
-        "seedData", "userJourneys", "delightMoments", "acceptanceCriteria",
+        "seedData", "userJourneys", "delightMoments", "acceptanceCriteria", "componentPatterns",
       ],
       additionalProperties: false,
     },
@@ -267,14 +279,16 @@ Required files:
 - Sources/<AppName>App.swift — @main entry with ModelContainer, seed data insertion on first launch.
 - Sources/ContentView.swift — root TabView or NavigationStack with polished tab/nav bar.
 - Sources/Core/Theme.swift — ALL design tokens: colors, corner radii, spacing scale, typography helpers, motion presets. This is the design system — it must be comprehensive.
-- Sources/Core/Components/*.swift — 3-4 reusable components (e.g. GlassCard, StatTile, EmptyStateView, SectionHeader). These get used across features.
+- Sources/Core/Components/*.swift — Use the PREMIUM COMPONENT LIBRARY provided below. Place each component in its own file. Import and USE them extensively in your feature views — they are the foundation of visual polish.
 - Sources/Features/<Feature>/*.swift — views with real layouts, @Observable stores with real logic, @Model types. Use seed data. Each screen must look distinct.
 - Sources/Resources/Assets.xcassets/ — Contents.json, AppIcon.appiconset/Contents.json, AccentColor.colorset/Contents.json
 - .gitignore — standard Xcode.
 
 Every file must be COMPLETE. No stubs, no truncation. The app must be usable end-to-end on first launch: seed data visible, working navigation, working CRUD, haptic feedback, polished animations.
 
-IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones. 18 polished files beats 30 truncated ones.`;
+IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones. 18 polished files beats 30 truncated ones.
+
+IMPORTANT: You will receive a PREMIUM COMPONENT LIBRARY section below. These are production-ready components — copy them into Sources/Core/Components/ and USE them in your feature views. Do NOT rewrite them from scratch. They are the foundation of visual quality.`;
 
 const TOOL_PROJECT = {
   type: "function",
@@ -670,7 +684,13 @@ async function generateProject(
   // Phase 3: Engineer
   enqueue("progress", { phase: "generating", message: `${tag} engineer — writing Swift 6 project…`, percent: 38 });
   const designForEngineer = designSpec ? `\n\nDesigner's per-screen spec (implement faithfully):\n\`\`\`json\n${JSON.stringify(designSpec, null, 2)}\n\`\`\`` : "";
-  const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`${designForEngineer}\n\nBuild the complete Xcode project. 16-24 files, all COMPLETE. Use the plan's designSystem tokens in Theme.swift. Use seedData for real content. Implement every screen in the plan.`;
+  // Inject selected premium component patterns
+  const selectedPatternIds = (plan.componentPatterns as string[] ?? ["glass_card", "staggered_entrance", "empty_state_view", "shimmer_modifier"]);
+  const componentLibrary = getSelectedPatterns(selectedPatternIds);
+  const componentContext = componentLibrary
+    ? `\n\n## PREMIUM COMPONENT LIBRARY\n${componentLibrary}\n\nPlace each component in Sources/Core/Components/<Name>.swift. Use them extensively in your feature views.`
+    : "";
+  const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`${designForEngineer}${componentContext}\n\nBuild the complete Xcode project. 16-24 files, all COMPLETE. Use the plan's designSystem tokens in Theme.swift. Use seedData for real content. Implement every screen in the plan. USE the premium components provided above — they are your visual effects foundation.`;
   const engineer = await callWithFallback({
     provider, apiKey, model: models.engineer,
     system: ENGINEER_PROMPT,

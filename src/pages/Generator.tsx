@@ -39,6 +39,7 @@ import { PreviewPlayground } from "@/components/generator/PreviewPlayground";
 import { RefinementChat } from "@/components/generator/RefinementChat";
 import { XcodeExportButton } from "@/components/generator/XcodeExport";
 import { QualityScore } from "@/components/generator/QualityScore";
+import { LiveSandbox } from "@/components/generator/LiveSandbox";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
 export default function Generator() {
@@ -844,6 +845,15 @@ export default function Generator() {
                 appName={project.appName}
                 onOpenPlayground={() => setShowPlayground(true)}
               />
+
+              {/* Live Sandbox for web apps */}
+              {target === "web" && (
+                <LiveSandbox
+                  project={project}
+                  target={target}
+                  onPreviewHtml={(html) => setPreviewHtml(html)}
+                />
+              )}
 
               {/* Live Code Playground */}
               {showPlayground && previewHtml && (

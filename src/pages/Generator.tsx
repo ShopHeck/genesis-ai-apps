@@ -287,7 +287,7 @@ export default function Generator() {
     }
   };
 
-  const validation = project ? validateProject(project) : null;
+  const validation = project && target === "ios" ? validateProject(project) : null;
 
   const handleDownload = async () => {
     if (!project) return;
@@ -348,11 +348,11 @@ export default function Generator() {
   };
 
   useEffect(() => {
-    if (project && !previewHtml && !previewLoading && !previewError) {
+    if (project && target === "ios" && !previewHtml && !previewLoading && !previewError) {
       generatePreview();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, target]);
 
 
   const tree = project ? buildTree(project.files) : null;

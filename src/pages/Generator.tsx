@@ -37,6 +37,7 @@ import { AppPreview } from "@/components/generator/AppPreview";
 import { PreviewPlayground } from "@/components/generator/PreviewPlayground";
 import { RefinementChat } from "@/components/generator/RefinementChat";
 import { XcodeExportButton } from "@/components/generator/XcodeExport";
+import { QualityScore } from "@/components/generator/QualityScore";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
 export default function Generator() {
@@ -825,6 +826,9 @@ export default function Generator() {
                   setSelectedFile(updated.files[0]?.path ?? null);
                 }}
               />
+
+              {/* Visual Quality Score */}
+              <QualityScore project={project} previewHtml={previewHtml} />
 
               {/* Pre-download validation */}
               {validation && <ValidationPanel result={validation} onSelect={setSelectedFile} />}

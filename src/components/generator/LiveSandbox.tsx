@@ -98,7 +98,7 @@ function bundleWebAppToHtml(project: Project): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${project.appName} — Live Preview</title>
-  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script src="https://cdn.tailwindcss.com"></scr` + `ipt>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -119,7 +119,7 @@ function bundleWebAppToHtml(project: Project): string {
         },
       },
     };
-  <\/script>
+  </scr` + `ipt>
   <style>
     :root {
       --accent: ${accentColor};
@@ -188,7 +188,7 @@ function bundleWebAppToHtml(project: Project): string {
       window.parent.postMessage({ type: 'sandbox-error', message: e.message }, '*');
       window.parent.postMessage({ type: 'preview-runtime-error', message: e.message }, '*');
     }
-  <\/script>
+  </scr` + `ipt>
   
   <!-- Generated source reference (for debugging) -->
   <!--

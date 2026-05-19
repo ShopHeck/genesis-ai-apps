@@ -12,7 +12,7 @@ const corsHeaders = {
 };
 
 // ─── Architect Prompt (Web) ─────────────────────────────────────────────
-const ARCHITECT_PROMPT = `You are a Senior Web Application Architect. Given a user idea, produce a detailed plan for a React + Tailwind CSS + Vite web application.
+const ARCHITECT_PROMPT = `You are a Senior Full-Stack Web Application Architect. Given a user idea, produce a detailed plan for a React + Tailwind CSS + Vite web application with an optional backend layer.
 
 Your plan must include:
 - appName: PascalCase (e.g. "MealPlanner")
@@ -28,8 +28,11 @@ Your plan must include:
 - userJourneys: 2-3 key user flows
 - delightMoments: 3-4 specific micro-interactions (hover effects, transitions, animations)
 - acceptanceCriteria: 5-7 testable quality gates
+- apiRoutes: array of { method, path, purpose, requestBody?, responseShape } — 3-6 REST endpoints that the frontend calls. Include CRUD for each data model. Example: { method: "GET", path: "/api/tasks", purpose: "List all tasks", responseShape: "Task[]" }
+- databaseSchema: array of { table, columns: [{name, type, constraints}] } — SQL table definitions matching the data models. Use snake_case column names. Include id (uuid, primary key), created_at (timestamptz), updated_at (timestamptz) on every table.
+- authStrategy: one of "none" | "email_password" | "social_oauth" — determines whether the app includes user registration/login. For apps with personal data, user accounts, or multi-user features, use "email_password". For simple tools or utilities, use "none".
 
-Scope constraint: Keep it to 3-5 pages, 1-2 models, minimal dependencies. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan produces truncated garbage.`;
+Scope constraint: Keep it to 3-5 pages, 1-2 models, 3-6 API routes, minimal dependencies. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan produces truncated garbage.`;
 
 const TOOL_WEB_PLAN = {
   name: "emit_web_plan",
@@ -91,17 +94,55 @@ const TOOL_WEB_PLAN = {
       userJourneys: { type: "array", items: { type: "string" } },
       delightMoments: { type: "array", items: { type: "string" } },
       acceptanceCriteria: { type: "array", items: { type: "string" } },
+      apiRoutes: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            method: { type: "string" },
+            path: { type: "string" },
+            purpose: { type: "string" },
+            requestBody: { type: "string" },
+            responseShape: { type: "string" },
+          },
+          required: ["method", "path", "purpose", "responseShape"],
+        },
+      },
+      databaseSchema: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            table: { type: "string" },
+            columns: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  type: { type: "string" },
+                  constraints: { type: "string" },
+                },
+                required: ["name", "type"],
+              },
+            },
+          },
+          required: ["table", "columns"],
+        },
+      },
+      authStrategy: { type: "string", description: "none | email_password | social_oauth" },
     },
     required: [
       "appName", "tagline", "signatureFeature", "accentColorHex",
       "visualPersonality", "designSystem", "pages", "dataModel", "frameworks",
       "seedData", "userJourneys", "delightMoments", "acceptanceCriteria",
+      "apiRoutes", "databaseSchema", "authStrategy",
     ],
   },
 };
 
 // ─── Engineer Prompt (Web) ──────────────────────────────────────────────
-const ENGINEER_PROMPT = `You are a Senior React Engineer building a production-quality web application with React 18 + Tailwind CSS + Vite.
+const ENGINEER_PROMPT = `You are a Senior Full-Stack React Engineer building a production-quality web application with React 18 + Tailwind CSS + Vite, with an integrated backend layer.
 
 Rules:
 1. TypeScript everywhere — strict mode, no \`any\`.
@@ -115,7 +156,21 @@ Rules:
 9. Accessibility: semantic HTML, ARIA labels, keyboard navigation, focus rings.
 10. Each page component in its own file. Shared components in components/.
 
-ANTI-PATTERNS that will cause AUTOMATED REJECTION:
+# Backend layer
+If the plan includes apiRoutes and databaseSchema:
+- Generate src/lib/api.ts — typed API client with fetch wrappers for each endpoint. All functions return typed responses. Example: \`export async function getTasks(): Promise<Task[]>\`
+- Generate src/lib/db.ts — in-memory database implementation using a Map or array that holds the seed data. Exports CRUD functions that match the apiRoutes. This simulates a real database so the app works standalone.
+- Generate server/api.ts — Express-style route handlers (one file) that wire up to db.ts. Include CORS headers, JSON parsing, error handling.
+- Generate server/schema.sql — SQL DDL for all tables in databaseSchema. Include CREATE TABLE IF NOT EXISTS, constraints, indexes.
+- All page components must call the API client (src/lib/api.ts), NOT import data directly. Data flows: Page → api.ts → db.ts (in standalone mode).
+
+If the plan includes authStrategy !== "none":
+- Generate src/lib/auth.ts — auth context with AuthProvider, useAuth hook, login/logout/register functions. Store user in localStorage for standalone mode.
+- Generate src/components/AuthGuard.tsx — route wrapper that redirects to /login if not authenticated.
+- Generate src/pages/Login.tsx and src/pages/Register.tsx — styled auth forms matching the design system.
+- Wrap authenticated routes with AuthGuard in App.tsx.
+
+# Anti-patterns that will cause AUTOMATED REJECTION:
 - "TODO", "FIXME", "implement later", "placeholder" in any file
 - Generic variable names like "item1", "data1"
 - Empty function bodies or stub implementations
@@ -123,7 +178,7 @@ ANTI-PATTERNS that will cause AUTOMATED REJECTION:
 - Hardcoded colors instead of using the design system
 - Default Tailwind blue (#3B82F6) as the primary color
 
-File structure (15-25 files):
+File structure (15-30 files):
 - package.json — with all dependencies (react, react-dom, react-router-dom, tailwindcss, @tailwindcss/vite, lucide-react, framer-motion)
 - vite.config.ts — Vite config with React and Tailwind plugins
 - tailwind.config.js — extended with designSystem tokens
@@ -133,10 +188,15 @@ File structure (15-25 files):
 - src/main.tsx — React entry with BrowserRouter
 - src/App.tsx — root component with routes and layout
 - src/index.css — Tailwind directives (@tailwind base/components/utilities) + custom CSS vars
-- src/lib/data.ts — seed data and types
-- src/components/*.tsx — 3-5 reusable components (cards, buttons, headers, empty states)
-- src/pages/*.tsx — one per page in the plan
+- src/lib/data.ts — seed data and TypeScript types/interfaces
+- src/lib/api.ts — typed API client functions
+- src/lib/db.ts — in-memory database with seed data (standalone mode)
+- src/lib/auth.ts — auth context + hooks (if authStrategy !== "none")
+- src/components/*.tsx — reusable UI components
+- src/pages/*.tsx — one per page in the plan (+ Login/Register if auth)
 - src/hooks/*.ts — custom hooks if needed
+- server/api.ts — backend route handlers
+- server/schema.sql — database DDL
 
 Every file must be COMPLETE. No stubs, no truncation. The app must work end-to-end on first \`npm run dev\`.
 
@@ -168,14 +228,15 @@ const TOOL_WEB_PROJECT = {
 };
 
 // ─── Reviewer Prompt (Web) ──────────────────────────────────────────────
-const REVIEWER_PROMPT = `You are a Senior Frontend Code Reviewer. Evaluate the generated React + Tailwind web project.
+const REVIEWER_PROMPT = `You are a Senior Full-Stack Code Reviewer. Evaluate the generated React + Tailwind web project including its backend layer.
 
 Score 0-100 on these dimensions:
 - Completeness: All pages from the plan are implemented with real content
 - Visual polish: Custom colors, animations, hover effects, responsive design
 - Code quality: TypeScript strict, no any, proper hooks usage, clean imports
-- Functionality: Routes work, seed data visible, interactions functional
+- Functionality: Routes work, seed data visible, interactions functional, API layer connected
 - Accessibility: Semantic HTML, ARIA labels, keyboard nav, focus management
+- Backend integration: API client calls backend, data flows through api.ts, CRUD operations work, auth guards protect routes (if auth enabled)
 
 If score < 70, provide specific patches to fix the worst issues.
 Call emit_web_review with your evaluation.`;
@@ -256,7 +317,7 @@ function validateWebProject(
     errors.push(`Too few files: ${project.files?.length ?? 0} (minimum 8)`);
   }
 
-  const requiredFiles = ["package.json", "index.html", "src/main.tsx", "src/App.tsx"];
+  const requiredFiles = ["package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/lib/api.ts"];
   for (const req of requiredFiles) {
     if (!project.files.some((f) => f.path === req || f.path.endsWith(req))) {
       errors.push(`Missing required file: ${req}`);
@@ -425,7 +486,9 @@ Deno.serve(async (req: Request) => {
         // Phase 2: Engineer
         enqueue("progress", { phase: "generating", message: `${tag} engineer — writing React + TypeScript project…`, percent: 38 });
 
-        const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nBuild the complete React + Tailwind web app. 15-25 files, all COMPLETE. Use the plan's designSystem tokens in tailwind.config.js. Use seedData for real content. Implement every page in the plan.`;
+        const hasBackend = Array.isArray(plan.apiRoutes) && (plan.apiRoutes as unknown[]).length > 0;
+        const hasAuth = plan.authStrategy && plan.authStrategy !== "none";
+        const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nBuild the complete React + Tailwind web app. 15-30 files, all COMPLETE. Use the plan's designSystem tokens in tailwind.config.js. Use seedData for real content. Implement every page in the plan.${hasBackend ? "\n\nThe plan includes apiRoutes and databaseSchema — generate the full backend layer (src/lib/api.ts, src/lib/db.ts, server/api.ts, server/schema.sql). All page components must call the API client, NOT import seed data directly." : ""}${hasAuth ? `\n\nThe plan specifies authStrategy: \"${plan.authStrategy}\". Generate auth files (src/lib/auth.ts, src/components/AuthGuard.tsx, src/pages/Login.tsx, src/pages/Register.tsx) and wrap protected routes with AuthGuard.` : ""}`;
 
         const engineer = await callWithFallback({
           provider, apiKey, model: models.engineer,

@@ -823,6 +823,12 @@ export default function Generator() {
                   <p className="text-sm text-muted-foreground mt-3 max-w-2xl">{project.summary}</p>
                   <p className="text-xs text-muted-foreground/70 mt-2">
                     {project.files.length} files generated
+                    {target === "web" && project.files.some(f => f.path.includes("server/")) && (
+                      <span className="ml-2 text-primary/70">· full-stack with API</span>
+                    )}
+                    {target === "web" && project.files.some(f => f.path.includes("auth.ts")) && (
+                      <span className="ml-1 text-primary/70">· auth included</span>
+                    )}
                   </p>
                 </div>
                 <Button
@@ -940,6 +946,11 @@ export default function Generator() {
                       theme="vs-dark"
                       language={
                         selectedFile?.endsWith(".swift") ? "swift" :
+                        selectedFile?.endsWith(".tsx") || selectedFile?.endsWith(".jsx") ? "typescript" :
+                        selectedFile?.endsWith(".ts") || selectedFile?.endsWith(".js") ? "typescript" :
+                        selectedFile?.endsWith(".css") ? "css" :
+                        selectedFile?.endsWith(".sql") ? "sql" :
+                        selectedFile?.endsWith(".html") ? "html" :
                         selectedFile?.endsWith(".yml") || selectedFile?.endsWith(".yaml") ? "yaml" :
                         selectedFile?.endsWith(".json") ? "json" :
                         selectedFile?.endsWith(".md") ? "markdown" :

@@ -18,6 +18,9 @@ import {
   Pencil,
   RotateCcw,
   LayoutDashboard,
+  Eye,
+  Code2,
+  Layers,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import JSZip from "jszip";
@@ -61,6 +64,7 @@ export default function Generator() {
   const [showAuth, setShowAuth] = useState(false);
   const [regeneratingFile, setRegeneratingFile] = useState(false);
   const [showPlayground, setShowPlayground] = useState(false);
+  const [resultTab, setResultTab] = useState<"preview" | "code" | "details">("preview");
   const startedAt = useRef<number | null>(null);
   const logIdRef = useRef(0);
   const terminalRef = useRef<HTMLDivElement | null>(null);
@@ -349,12 +353,8 @@ export default function Generator() {
     }
   };
 
-  useEffect(() => {
-    if (project && target === "ios" && !previewHtml && !previewLoading && !previewError) {
-      generatePreview();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, target]);
+  // iOS preview is lazy — user clicks "Generate Preview" in the AppPreview component
+  // instead of auto-triggering the slow AI call after generation completes.
 
 
   const tree = project ? buildTree(project.files) : null;
@@ -844,163 +844,178 @@ export default function Generator() {
                 </Button>
               </div>
 
-              {/* Interactive app preview */}
-              <AppPreview
-                html={previewHtml}
-                loading={previewLoading}
-                error={previewError}
-                onRegenerate={generatePreview}
-                appName={project.appName}
-                onOpenPlayground={() => setShowPlayground(true)}
-              />
-
-              {/* Live Sandbox for web apps */}
-              {target === "web" && (
-                <LiveSandbox
-                  project={project}
-                  target={target}
-                  onPreviewHtml={(html) => setPreviewHtml(html)}
-                />
-              )}
-
-              {/* Live Code Playground */}
-              {showPlayground && previewHtml && (
-                <PreviewPlayground
-                  html={previewHtml}
-                  appName={project.appName}
-                  onHtmlChange={(html) => setPreviewHtml(html)}
-                />
-              )}
-
-              {/* Iterative Refinement Chat */}
-              <RefinementChat
-                project={project}
-                prompt={lastPromptUsed}
-                provider={provider}
-                onProjectUpdate={(updated) => {
-                  setProject(updated);
-                  setSelectedFile(updated.files[0]?.path ?? null);
-                }}
-              />
-
-              {/* Visual Quality Score */}
-              <QualityScore project={project} previewHtml={previewHtml} />
-
-              {/* Pre-download validation */}
-              {validation && <ValidationPanel result={validation} onSelect={setSelectedFile} />}
-
-              {/* ZIP Preview summary */}
-              <ZipPreviewCard project={project} onSelect={setSelectedFile} />
-
-              {/* Code viewer */}
-              <div className="grid lg:grid-cols-[280px_1fr] gap-4 min-h-[500px]">
-                {/* File tree */}
-                <div className="glass-panel p-3 overflow-auto max-h-[600px]">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground px-2 py-2 flex items-center gap-1.5">
-                    <Folder size={12} /> {project.appName}
-                  </div>
-                  <FileTreeView
-                    node={tree!}
-                    selected={selectedFile}
-                    onSelect={setSelectedFile}
-                  />
-                </div>
-
-                {/* File content */}
-                <div className="glass-panel overflow-hidden flex flex-col min-h-[500px]">
-                  <div className="border-b border-border/40 px-4 py-2 flex items-center justify-between gap-2 bg-card/40">
-                    <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground min-w-0">
-                      <FileCode2 size={12} className="shrink-0" />
-                      <span className="truncate">{selectedFile}</span>
-                      {selectedFile && editedFiles.has(selectedFile) && (
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">edited</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {plan !== "free" && selectedFile && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs border-border/60 hover:border-primary/40"
-                          onClick={handleRegenerateFile}
-                          disabled={regeneratingFile}
-                          title="Regenerate this file with AI"
-                        >
-                          {regeneratingFile ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                          <span className="ml-1.5 hidden sm:inline">Regenerate</span>
-                        </Button>
-                      )}
-                      {plan === "free" && selectedFile && (
-                        <button
-                          onClick={() => setShowAuth(true)}
-                          className="text-[10px] text-primary/70 flex items-center gap-1 hover:text-primary"
-                          title="Upgrade to Pro to edit files"
-                        >
-                          <Pencil size={10} /> Upgrade to edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {plan !== "free" ? (
-                    <Editor
-                      height="560px"
-                      theme="vs-dark"
-                      language={
-                        selectedFile?.endsWith(".swift") ? "swift" :
-                        selectedFile?.endsWith(".tsx") || selectedFile?.endsWith(".jsx") ? "typescript" :
-                        selectedFile?.endsWith(".ts") || selectedFile?.endsWith(".js") ? "typescript" :
-                        selectedFile?.endsWith(".css") ? "css" :
-                        selectedFile?.endsWith(".sql") ? "sql" :
-                        selectedFile?.endsWith(".html") ? "html" :
-                        selectedFile?.endsWith(".yml") || selectedFile?.endsWith(".yaml") ? "yaml" :
-                        selectedFile?.endsWith(".json") ? "json" :
-                        selectedFile?.endsWith(".md") ? "markdown" :
-                        selectedFile?.endsWith(".gitignore") ? "ini" : "plaintext"
-                      }
-                      value={editedFiles.get(selectedFile ?? "") ?? currentFile?.content ?? ""}
-                      onChange={(val) => {
-                        if (selectedFile && val !== undefined) {
-                          setEditedFiles(prev => new Map(prev).set(selectedFile, val));
-                        }
-                      }}
-                      options={{
-                        minimap: { enabled: false },
-                        fontSize: 12,
-                        lineNumbers: "on",
-                        scrollBeyondLastLine: false,
-                        wordWrap: "on",
-                        readOnly: false,
-                        automaticLayout: true,
-                      }}
-                    />
-                  ) : (
-                    <div className="relative flex-1 overflow-auto">
-                      <pre className="p-4 text-xs font-mono text-foreground/90 leading-relaxed">
-                        <code>{currentFile?.content ?? ""}</code>
-                      </pre>
-                      <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
-                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
-                        <button
-                          onClick={() => setShowAuth(true)}
-                          className="glass-panel px-4 py-2 text-xs text-primary border-primary/30 hover:border-primary/60 transition-colors flex items-center gap-2"
-                        >
-                          <Pencil size={12} />
-                          Upgrade to Pro to edit files in-browser
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              {/* ─── Tab Bar ─── */}
+              <div className="flex gap-1 p-1 bg-card/40 rounded-xl border border-border/40">
+                {([
+                  { id: "preview" as const, label: "Preview", icon: Eye },
+                  { id: "code" as const, label: "Code", icon: Code2 },
+                  { id: "details" as const, label: "Details", icon: Layers },
+                ]).map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setResultTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      resultTab === tab.id
+                        ? "bg-primary text-primary-foreground shadow-[var(--shadow-glow-sm)]"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"
+                    }`}
+                  >
+                    <tab.icon size={14} />
+                    {tab.label}
+                  </button>
+                ))}
               </div>
 
-              {/* Xcode Project Export (iOS only) */}
-              {target === "ios" && (
-                <XcodeExportButton
-                  project={project}
-                  editedFiles={editedFiles}
-                  validation={validation}
-                />
+              {/* ─── Preview Tab ─── */}
+              {resultTab === "preview" && (
+                <>
+                  {target === "web" ? (
+                    <LiveSandbox
+                      project={project}
+                      target={target}
+                      onPreviewHtml={(html) => setPreviewHtml(html)}
+                    />
+                  ) : (
+                    <AppPreview
+                      html={previewHtml}
+                      loading={previewLoading}
+                      error={previewError}
+                      onRegenerate={generatePreview}
+                      appName={project.appName}
+                      onOpenPlayground={() => setShowPlayground(true)}
+                    />
+                  )}
+                  {showPlayground && previewHtml && (
+                    <PreviewPlayground
+                      html={previewHtml}
+                      appName={project.appName}
+                      onHtmlChange={(html) => setPreviewHtml(html)}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* ─── Code Tab ─── */}
+              {resultTab === "code" && (
+                <>
+                  <ZipPreviewCard project={project} onSelect={(f) => { setSelectedFile(f); }} />
+                  <div className="grid lg:grid-cols-[280px_1fr] gap-4 min-h-[500px]">
+                    <div className="glass-panel p-3 overflow-auto max-h-[600px]">
+                      <div className="text-xs uppercase tracking-wider text-muted-foreground px-2 py-2 flex items-center gap-1.5">
+                        <Folder size={12} /> {project.appName}
+                      </div>
+                      <FileTreeView node={tree!} selected={selectedFile} onSelect={setSelectedFile} />
+                    </div>
+                    <div className="glass-panel overflow-hidden flex flex-col min-h-[500px]">
+                      <div className="border-b border-border/40 px-4 py-2 flex items-center justify-between gap-2 bg-card/40">
+                        <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground min-w-0">
+                          <FileCode2 size={12} className="shrink-0" />
+                          <span className="truncate">{selectedFile}</span>
+                          {selectedFile && editedFiles.has(selectedFile) && (
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">edited</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {plan !== "free" && selectedFile && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-border/60 hover:border-primary/40"
+                              onClick={handleRegenerateFile}
+                              disabled={regeneratingFile}
+                              title="Regenerate this file with AI"
+                            >
+                              {regeneratingFile ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                              <span className="ml-1.5 hidden sm:inline">Regenerate</span>
+                            </Button>
+                          )}
+                          {plan === "free" && selectedFile && (
+                            <button
+                              onClick={() => setShowAuth(true)}
+                              className="text-[10px] text-primary/70 flex items-center gap-1 hover:text-primary"
+                              title="Upgrade to Pro to edit files"
+                            >
+                              <Pencil size={10} /> Upgrade to edit
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {plan !== "free" ? (
+                        <Editor
+                          height="560px"
+                          theme="vs-dark"
+                          language={
+                            selectedFile?.endsWith(".swift") ? "swift" :
+                            selectedFile?.endsWith(".tsx") || selectedFile?.endsWith(".jsx") ? "typescript" :
+                            selectedFile?.endsWith(".ts") || selectedFile?.endsWith(".js") ? "typescript" :
+                            selectedFile?.endsWith(".css") ? "css" :
+                            selectedFile?.endsWith(".sql") ? "sql" :
+                            selectedFile?.endsWith(".html") ? "html" :
+                            selectedFile?.endsWith(".yml") || selectedFile?.endsWith(".yaml") ? "yaml" :
+                            selectedFile?.endsWith(".json") ? "json" :
+                            selectedFile?.endsWith(".md") ? "markdown" :
+                            selectedFile?.endsWith(".gitignore") ? "ini" : "plaintext"
+                          }
+                          value={editedFiles.get(selectedFile ?? "") ?? currentFile?.content ?? ""}
+                          onChange={(val) => {
+                            if (selectedFile && val !== undefined) {
+                              setEditedFiles(prev => new Map(prev).set(selectedFile, val));
+                            }
+                          }}
+                          options={{
+                            minimap: { enabled: false },
+                            fontSize: 12,
+                            lineNumbers: "on",
+                            scrollBeyondLastLine: false,
+                            wordWrap: "on",
+                            readOnly: false,
+                            automaticLayout: true,
+                          }}
+                        />
+                      ) : (
+                        <div className="relative flex-1 overflow-auto">
+                          <pre className="p-4 text-xs font-mono text-foreground/90 leading-relaxed">
+                            <code>{currentFile?.content ?? ""}</code>
+                          </pre>
+                          <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
+                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
+                            <button
+                              onClick={() => setShowAuth(true)}
+                              className="glass-panel px-4 py-2 text-xs text-primary border-primary/30 hover:border-primary/60 transition-colors flex items-center gap-2"
+                            >
+                              <Pencil size={12} />
+                              Upgrade to Pro to edit files in-browser
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ─── Details Tab ─── */}
+              {resultTab === "details" && (
+                <>
+                  <RefinementChat
+                    project={project}
+                    prompt={lastPromptUsed}
+                    provider={provider}
+                    onProjectUpdate={(updated) => {
+                      setProject(updated);
+                      setSelectedFile(updated.files[0]?.path ?? null);
+                    }}
+                  />
+                  <QualityScore project={project} previewHtml={previewHtml} />
+                  {validation && <ValidationPanel result={validation} onSelect={(f) => { setSelectedFile(f); setResultTab("code"); }} />}
+                  {target === "ios" && (
+                    <XcodeExportButton
+                      project={project}
+                      editedFiles={editedFiles}
+                      validation={validation}
+                    />
+                  )}
+                </>
               )}
             </motion.section>
           )}

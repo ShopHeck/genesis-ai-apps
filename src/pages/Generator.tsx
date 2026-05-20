@@ -170,6 +170,7 @@ export default function Generator() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let resultReceived = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -199,7 +200,7 @@ export default function Generator() {
               : phase === "generating" ? "action"
               : "thought";
             pushLog(kind, message ?? phase);
-            if (!isRetry && percent >= 0) {
+            if (!isRetry && !resultReceived && percent >= 0) {
               if (percent >= 85) setStage("bundling");
               else if (percent >= 30) setStage("generating");
               else setStage("analyzing");
@@ -214,6 +215,7 @@ export default function Generator() {
               localStorage.setItem("apexbuild_anon_uses", String(cur + 1));
             }
 
+            resultReceived = true;
             setProject(data as Project);
             setSelectedFile(data.files[0].path);
             setStage("done");
@@ -638,7 +640,7 @@ export default function Generator() {
                     Building your app
                   </p>
                   <h2 className="font-display text-xl font-semibold mt-1">
-                    {STAGES.find((s) => s.id === stage)?.label ?? "Working…"}
+                    {(() => { const s = STAGES.find((s) => s.id === stage); return (target === "web" && s?.webLabel) ? s.webLabel : s?.label ?? "Working…"; })()}
                   </h2>
                 </div>
                 <div className="text-right">
@@ -714,9 +716,9 @@ export default function Generator() {
                             status === "pending" ? "text-muted-foreground" : "text-foreground"
                           }`}
                         >
-                          {step.label}
+                          {target === "web" && step.webLabel ? step.webLabel : step.label}
                         </p>
-                        <p className="text-xs text-muted-foreground/80 mt-0.5">{step.hint}</p>
+                        <p className="text-xs text-muted-foreground/80 mt-0.5">{target === "web" && step.webHint ? step.webHint : step.hint}</p>
                       </div>
                       <span className="text-xs font-mono text-muted-foreground/60 mt-1">
                         {String(i + 1).padStart(2, "0")}

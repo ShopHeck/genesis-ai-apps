@@ -573,7 +573,7 @@ function buildReviewManifest(project: { files: { path: string; content: string }
     .join("\n\n");
 
   const featureViews = project.files
-    .filter((f) => f.path.endsWith(".swift") && /Features/.*View\.swift$/.test(f.path))
+    .filter((f) => f.path.endsWith(".swift") && /Features\/.*View\.swift$/.test(f.path))
     .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 1500)}\n\`\`\``)
     .join("\n\n");
 

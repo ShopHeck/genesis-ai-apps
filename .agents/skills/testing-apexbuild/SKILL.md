@@ -21,6 +21,7 @@ description: Test ApexBuild (genesis-ai-apps) frontend end-to-end. Use when veri
 4. Click "Generate App"
 5. Wait 60-120s for completion
 6. Verify: "READY FOR XCODE" badge, .swift files in tree, Download .zip enabled
+7. Verify: iOS preview does NOT auto-trigger (lazy — user must click "Generate Preview")
 
 ### Web Generation
 1. Navigate to /generator
@@ -35,7 +36,28 @@ description: Test ApexBuild (genesis-ai-apps) frontend end-to-end. Use when veri
    - .tsx/.ts/.css files in tree (NOT .swift)
    - "Download .zip" button enabled
    - Live Sandbox panel shows "Running" with "live code" badge
+   - LiveSandbox iframe renders actual React content (NOT blank)
    - NO Xcode Export section
+
+### Tabbed Result Layout
+After generation completes, the result section uses a 3-tab bar:
+- **Preview tab** (default): LiveSandbox (web) or AppPreview (iOS)
+- **Code tab**: ZipPreviewCard + file tree + Monaco editor
+- **Details tab**: RefinementChat, QualityScore, ValidationPanel, XcodeExport (iOS only)
+
+Verify:
+- All 3 tabs render their content correctly when clicked
+- Active tab is highlighted (teal/primary color)
+- Clicking a validation issue in Details tab navigates to Code tab with file selected
+- Tab state persists when scrolling
+
+### LiveSandbox Verification
+The LiveSandbox uses Babel standalone + React CDN to render generated components:
+- Should show shimmer loading skeleton briefly while CDN scripts load
+- Should render actual React components (headings, text, interactive elements)
+- Status should show "Running" (not "Error")
+- Console logs panel should be available via the terminal icon
+- If rendering errors occur, error message should display (not blank page)
 
 ### Anonymous Use Limit
 - Anonymous users get 1 free build

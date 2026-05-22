@@ -135,6 +135,7 @@ function bundleWebAppToHtml(project: Project): string {
     'use strict';
     var h = React.createElement;
     var __origUC=React.useContext;React.useContext=function(c){var v=__origUC.call(React,c);return v==null?{}:v;};
+    var __origCC=React.createContext;React.createContext=function(d){return __origCC.call(React,d==null?{}:d);};
     var __files = ${safeJson};
     var __compiled = {}, __cache = {};
 
@@ -235,7 +236,7 @@ function bundleWebAppToHtml(project: Project): string {
       }
       var mp=find(resolved);
       if(!mp){console.warn('[sandbox] Module not found:',name,'(from:',fromDir,')');
-        return new Proxy({},{get:function(_,p){if(p==='default')return function(){return null;};if(p==='__esModule')return true;return function(){return null;};}});}
+        return new Proxy({},{get:function(_,p){if(p==='default')return function(){return null;};if(p==='__esModule')return true;return function(){return {};};}});}
       if(__cache[mp])return __cache[mp];
       var mod={exports:{}};__cache[mp]=mod.exports;
       try{var dir=mp.split('/').slice(0,-1).join('/');

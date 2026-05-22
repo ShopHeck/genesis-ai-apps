@@ -134,6 +134,7 @@ function bundleWebAppToHtml(project: Project): string {
   (function(){
     'use strict';
     var h = React.createElement;
+    var __origUC=React.useContext;React.useContext=function(c){var v=__origUC.call(React,c);return v==null?{}:v;};
     var __files = ${safeJson};
     var __compiled = {}, __cache = {};
 

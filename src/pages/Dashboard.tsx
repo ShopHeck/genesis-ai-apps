@@ -11,6 +11,11 @@ import {
   Sparkles,
   Crown,
   Zap,
+  RefreshCw,
+  Pencil,
+  Eye,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -32,6 +37,9 @@ type GenerationRecord = {
   model_used: string | null;
   status: string;
   created_at: string;
+  target: string | null;
+  review_score: number | null;
+  parent_generation_id: string | null;
 };
 
 const PLAN_LABELS: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -61,7 +69,7 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from("generations")
-        .select("id, app_name, bundle_id, summary, prompt, files_count, files, model_used, status, created_at")
+        .select("id, app_name, bundle_id, summary, prompt, files_count, files, model_used, status, created_at, target, review_score, parent_generation_id")
         .eq("user_id", user!.id)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -229,7 +237,7 @@ export default function Dashboard() {
                   </p>
                 )}
 
-                <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4 flex-wrap">
                   <span className="flex items-center gap-1">
                     <Package size={11} /> {gen.files_count ?? 0} files
                   </span>
@@ -241,6 +249,24 @@ export default function Dashboard() {
                     <span className="flex items-center gap-1">
                       <Sparkles size={11} /> {gen.model_used.includes("claude") ? "Claude" : "Gemini"}
                     </span>
+                  )}
+                  {gen.target && (
+                    <Badge variant="outline" className="text-[9px] py-0 h-4">
+                      {gen.target === "web" ? "Web" : "iOS"}
+                    </Badge>
+                  )}
+                  {gen.review_score != null && (
+                    <span className={`flex items-center gap-1 ${
+                      gen.review_score >= 70 ? "text-emerald-400" :
+                      gen.review_score >= 50 ? "text-yellow-400" : "text-red-400"
+                    }`}>
+                      <Eye size={11} /> {gen.review_score}/100
+                    </span>
+                  )}
+                  {gen.parent_generation_id && (
+                    <Badge variant="outline" className="text-[9px] py-0 h-4 border-violet-400/40 text-violet-400">
+                      iteration
+                    </Badge>
                   )}
                 </div>
 
@@ -254,6 +280,24 @@ export default function Dashboard() {
                   >
                     <Download size={13} className="mr-1.5" />
                     Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border/60 hover:border-emerald-400/40 hover:bg-emerald-400/5 text-xs"
+                    onClick={() => navigate(`/generator?regenerate=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "ios"}`)}
+                    title="Re-generate with same prompt"
+                  >
+                    <RefreshCw size={13} />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border/60 hover:border-violet-400/40 hover:bg-violet-400/5 text-xs"
+                    onClick={() => navigate(`/generator?remix=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "ios"}`)}
+                    title="Remix — modify this app's prompt"
+                  >
+                    <Pencil size={13} />
                   </Button>
                 </div>
               </motion.div>

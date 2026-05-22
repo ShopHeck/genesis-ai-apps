@@ -5,6 +5,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
+import { getSelectedWebPatterns, getScaffoldFiles, WEB_PATTERN_MENU, WEB_COMPONENT_LIBRARY } from "./component-library.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,7 +33,12 @@ Your plan must include:
 - databaseSchema: array of { table, columns: [{name, type, constraints}] } — SQL table definitions matching the data models. Use snake_case column names. Include id (uuid, primary key), created_at (timestamptz), updated_at (timestamptz) on every table.
 - authStrategy: one of "none" | "email_password" | "social_oauth" — determines whether the app includes user registration/login. For apps with personal data, user accounts, or multi-user features, use "email_password". For simple tools or utilities, use "none".
 
-Scope constraint: Keep it to 3-5 pages, 1-2 models, 3-6 API routes, minimal dependencies. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan produces truncated garbage.`;
+Scope constraint: Keep it to 3-5 pages, 1-2 models, 3-6 API routes, minimal dependencies. The engineer has a generous but finite output budget — a tight, detailed plan produces a polished app. A bloated plan produces truncated garbage.
+
+You MUST also select 4-6 premium component patterns from this library to include in the project:
+${WEB_PATTERN_MENU}
+
+Pick patterns that match the app's needs — e.g. glass_card + stats_grid for dashboards, hero_section + feature_card for landing pages, animated_list + empty_state for data-driven apps.`;
 
 const TOOL_WEB_PLAN = {
   name: "emit_web_plan",
@@ -131,12 +137,13 @@ const TOOL_WEB_PLAN = {
         },
       },
       authStrategy: { type: "string", description: "none | email_password | social_oauth" },
+      componentPatterns: { type: "array", items: { type: "string" }, description: "4-6 pattern IDs from the premium component library" },
     },
     required: [
       "appName", "tagline", "signatureFeature", "accentColorHex",
       "visualPersonality", "designSystem", "pages", "dataModel", "frameworks",
       "seedData", "userJourneys", "delightMoments", "acceptanceCriteria",
-      "apiRoutes", "databaseSchema", "authStrategy",
+      "apiRoutes", "databaseSchema", "authStrategy", "componentPatterns",
     ],
   },
 };
@@ -200,7 +207,9 @@ File structure (15-30 files):
 
 Every file must be COMPLETE. No stubs, no truncation. The app must work end-to-end on first \`npm run dev\`.
 
-IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones.`;
+IMPORTANT: Prefer FEWER, COMPLETE files over MANY incomplete ones.
+
+SCAFFOLD FILES ARE PRE-GENERATED: Do NOT generate package.json, tsconfig.json, postcss.config.js, vite.config.ts, or index.html — they are injected automatically. Focus your output tokens on app-specific code (pages, components, hooks, data, API).`;
 
 const TOOL_WEB_PROJECT = {
   name: "emit_web_project",
@@ -483,12 +492,34 @@ Deno.serve(async (req: Request) => {
         if (!plan) throw new Error("Architect did not return a plan.");
         enqueue("progress", { phase: "analyzing", message: `${tag} plan ready: "${(plan.appName as string) ?? "app"}" — ${(plan.pages as unknown[])?.length ?? 0} pages`, percent: 25 });
 
-        // Phase 2: Engineer
-        enqueue("progress", { phase: "generating", message: `${tag} engineer — writing React + TypeScript project…`, percent: 38 });
+        // Inject premium component patterns
+        const selectedPatternIds = (plan.componentPatterns as string[] ?? ["glass_card", "animated_list", "empty_state", "shimmer_skeleton"]);
+        const componentLibrary = getSelectedWebPatterns(selectedPatternIds);
+        const componentContext = componentLibrary
+          ? `\n\n## PREMIUM COMPONENT LIBRARY\n${componentLibrary}\n\nPlace each component in src/components/ui/<Name>.tsx. Import and USE them extensively in your page components — they are your visual effects foundation.`
+          : "";
 
+        // ── Streaming Phase: emit scaffold + component files immediately ──
+        const scaffoldFiles = getScaffoldFiles(plan as Record<string, unknown>);
+        const componentFiles = selectedPatternIds
+          .map((id) => {
+            const pattern = WEB_COMPONENT_LIBRARY.find((p) => p.id === id);
+            if (!pattern) return null;
+            return { path: `src/components/ui/${pattern.name}.tsx`, content: pattern.tsx };
+          })
+          .filter((f): f is { path: string; content: string } => f !== null);
+
+        const earlyFiles = [...scaffoldFiles, ...componentFiles];
+        for (const f of earlyFiles) {
+          enqueue("file", { path: f.path, content: f.content, phase: "scaffold" });
+        }
+        enqueue("progress", { phase: "generating", message: `${tag} scaffold ready (${earlyFiles.length} files) — engineer writing app code…`, percent: 35 });
+
+        // Phase 2: Engineer
         const hasBackend = Array.isArray(plan.apiRoutes) && (plan.apiRoutes as unknown[]).length > 0;
         const hasAuth = plan.authStrategy && plan.authStrategy !== "none";
-        const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nBuild the complete React + Tailwind web app. 15-30 files, all COMPLETE. Use the plan's designSystem tokens in tailwind.config.js. Use seedData for real content. Implement every page in the plan.${hasBackend ? "\n\nThe plan includes apiRoutes and databaseSchema — generate the full backend layer (src/lib/api.ts, src/lib/db.ts, server/api.ts, server/schema.sql). All page components must call the API client, NOT import seed data directly." : ""}${hasAuth ? `\n\nThe plan specifies authStrategy: \"${plan.authStrategy}\". Generate auth files (src/lib/auth.ts, src/components/AuthGuard.tsx, src/pages/Login.tsx, src/pages/Register.tsx) and wrap protected routes with AuthGuard.` : ""}`;
+
+        const engineerUserMsg = `App idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`${componentContext}\n\nBuild the app-specific React + Tailwind code. 10-20 files (pages, components, hooks, data). Scaffold files (package.json, tsconfig, vite.config, etc.) are pre-injected — do NOT generate them. Use the plan's designSystem tokens. Use seedData for real content. Implement every page in the plan. USE the premium components provided above.${hasBackend ? "\n\nThe plan includes apiRoutes and databaseSchema — generate the full backend layer (src/lib/api.ts, src/lib/db.ts, server/api.ts, server/schema.sql). All page components must call the API client, NOT import seed data directly." : ""}${hasAuth ? `\n\nThe plan specifies authStrategy: "${plan.authStrategy}". Generate auth files (src/lib/auth.ts, src/components/AuthGuard.tsx, src/pages/Login.tsx, src/pages/Register.tsx) and wrap protected routes with AuthGuard.` : ""}`;
 
         const engineer = await callWithFallback({
           provider, apiKey, model: models.engineer,
@@ -500,8 +531,22 @@ Deno.serve(async (req: Request) => {
           enqueue,
         });
 
-        const project = engineer.toolArgs as { appName: string; summary: string; files: { path: string; content: string }[] } | undefined;
-        if (!project?.files?.length) throw new Error("Engineer did not return a project.");
+        const rawProject = engineer.toolArgs as { appName: string; summary: string; files: { path: string; content: string }[] } | undefined;
+        if (!rawProject?.files?.length) throw new Error("Engineer did not return a project.");
+
+        // Emit each engineer file as it's parsed
+        for (const f of rawProject.files) {
+          enqueue("file", { path: f.path, content: f.content, phase: "engineer" });
+        }
+
+        // Merge: scaffold first, then component library, then engineer's files (engineer wins on conflicts)
+        const engineerPaths = new Set(rawProject.files.map((f) => f.path));
+        const mergedFiles = [
+          ...scaffoldFiles.filter((f) => !engineerPaths.has(f.path)),
+          ...componentFiles.filter((f) => !engineerPaths.has(f.path)),
+          ...rawProject.files,
+        ];
+        const project = { ...rawProject, files: mergedFiles };
 
         // Validate
         const validation = validateWebProject(project);
@@ -523,7 +568,7 @@ Deno.serve(async (req: Request) => {
           } catch { /* non-fatal */ }
         }
 
-        // Deferred review
+        // Deferred review + quality-driven auto-regeneration
         try {
           const reviewManifest = project.files
             .slice(0, 10)
@@ -541,9 +586,64 @@ Deno.serve(async (req: Request) => {
           });
 
           const review = reviewer.toolArgs as { score: number; verdict: string; issues: unknown[] } | undefined;
+          const currentFiles = [...project.files];
+
           if (review) {
-            if (review.verdict === "needs_refinement" && review.score < 70) {
-              // Refine
+            enqueue("progress", { phase: "reviewing", message: `[reviewer] quality score: ${review.score}/100 — ${review.verdict}`, percent: -1 });
+
+            if (review.score < 60) {
+              // Quality-driven auto-regeneration: extract top improvements and refine
+              enqueue("progress", { phase: "refining", message: `[quality] score ${review.score}/100 below threshold (60) — auto-refining…`, percent: -1 });
+
+              const topIssues = (review.issues as { file?: string; issue?: string; fix?: string }[])
+                .slice(0, 3)
+                .map((iss) => `• [${iss.file ?? "general"}] ${iss.issue ?? ""}\n  Fix: ${iss.fix ?? ""}`)
+                .join("\n");
+
+              const refiner = await callWithFallback({
+                provider, apiKey, model: models.engineer,
+                system: ENGINEER_PROMPT,
+                userMessage: `The project scored ${review.score}/100 on quality review. Fix these top issues:\n${topIssues}\n\nOriginal files:\n${reviewManifest}\n\nReturn only the PATCHED files with improvements. Focus on visual polish, component richness, and content quality.`,
+                tool: toAITool(TOOL_WEB_PATCH),
+                maxTokens: 32000,
+                timeoutMs: 120_000,
+                enqueue,
+              });
+
+              const patches = refiner.toolArgs?.files as { path: string; content: string }[] | undefined;
+              if (patches?.length) {
+                for (const patch of patches) {
+                  const idx = currentFiles.findIndex((f) => f.path === patch.path);
+                  if (idx >= 0) currentFiles[idx] = patch;
+                  else currentFiles.push(patch);
+                }
+
+                // Re-evaluate after refinement (max 1 re-generation to cap cost)
+                let afterScore = review.score;
+                try {
+                  const reReview = await callWithFallback({
+                    provider, apiKey, model: models.reviewer,
+                    system: REVIEWER_PROMPT,
+                    userMessage: `Review this React + Tailwind web project after quality refinement:\n\n${currentFiles.slice(0, 10).map((f) => `// === ${f.path} ===\n${f.content.slice(0, 1500)}`).join("\n\n")}`,
+                    tool: toAITool(TOOL_WEB_REVIEW),
+                    maxTokens: 4000,
+                    timeoutMs: 60_000,
+                    enqueue,
+                  });
+                  const reReviewResult = reReview.toolArgs as { score: number } | undefined;
+                  if (reReviewResult) afterScore = reReviewResult.score;
+                } catch { /* non-fatal */ }
+
+                enqueue("patch", {
+                  files: currentFiles,
+                  reviewScore: afterScore,
+                  beforeScore: review.score,
+                  autoRefined: true,
+                });
+                enqueue("progress", { phase: "refining", message: `[quality] refined: ${review.score} → ${afterScore}/100`, percent: -1 });
+              }
+            } else if (review.verdict === "needs_refinement" && review.score < 70) {
+              // Standard refinement for scores 60-69
               const refiner = await callWithFallback({
                 provider, apiKey, model: models.engineer,
                 system: ENGINEER_PROMPT,
@@ -556,13 +656,12 @@ Deno.serve(async (req: Request) => {
 
               const patches = refiner.toolArgs?.files as { path: string; content: string }[] | undefined;
               if (patches?.length) {
-                const patchedFiles = [...project.files];
                 for (const patch of patches) {
-                  const idx = patchedFiles.findIndex((f) => f.path === patch.path);
-                  if (idx >= 0) patchedFiles[idx] = patch;
-                  else patchedFiles.push(patch);
+                  const idx = currentFiles.findIndex((f) => f.path === patch.path);
+                  if (idx >= 0) currentFiles[idx] = patch;
+                  else currentFiles.push(patch);
                 }
-                enqueue("patch", { files: patchedFiles, reviewScore: review.score });
+                enqueue("patch", { files: currentFiles, reviewScore: review.score });
               }
             } else {
               enqueue("review", { reviewScore: review.score });

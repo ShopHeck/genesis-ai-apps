@@ -573,7 +573,7 @@ function buildReviewManifest(project: { files: { path: string; content: string }
     .join("\n\n");
 
   const featureViews = project.files
-    .filter((f) => f.path.endsWith(".swift") && /Features/.*View\.swift$/.test(f.path))
+    .filter((f) => f.path.endsWith(".swift") && new RegExp("Features.*View\\.swift$").test(f.path))
     .map((f) => `### ${f.path}\n\`\`\`swift\n${f.content.slice(0, 1500)}\n\`\`\``)
     .join("\n\n");
 
@@ -937,10 +937,14 @@ Deno.serve(async (req: Request) => {
           );
           const reviewScore = (review as { score?: number } | null)?.score;
           if (patchedProject !== project && patchedProject.files !== project.files) {
+            // Quality-driven auto-regeneration: if score < 60, report before/after
+            const autoRefined = reviewScore !== undefined && reviewScore < 60;
             enqueue("patch", {
               files: patchedProject.files,
               reviewScore,
               reviewSummary: review?.summary ?? null,
+              autoRefined,
+              ...(autoRefined ? { beforeScore: reviewScore } : {}),
             });
           } else if (review) {
             enqueue("review", { reviewScore, reviewSummary: review.summary });

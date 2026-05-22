@@ -9,11 +9,19 @@ import {
   CheckCircle2,
   XCircle,
   Terminal,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Project } from "./types";
 
 type SandboxStatus = "idle" | "loading" | "ready" | "error";
+type LogLevel = "info" | "warn" | "error" | "log";
+
+interface SandboxLog {
+  level: LogLevel;
+  message: string;
+  timestamp: number;
+}
 
 interface SandboxMessage {
   type: "sandbox-ready" | "sandbox-error" | "sandbox-log";
@@ -164,6 +172,31 @@ function bundleWebAppToHtml(project: Project): string {
     var tf=function(m){console.log('[toast]',m);};tf.success=tf;tf.error=tf;tf.info=tf;tf.warning=tf;
     var sonnerShim={toast:tf,Toaster:function(){return null;}};
 
+    /* ── date-fns shim ── */
+    var dateFnsShim={format:function(d,f){try{return new Date(d).toLocaleDateString();}catch(e){return String(d);}},formatDistance:function(a,b){return'recently';},formatRelative:function(a,b){return new Date(a).toLocaleDateString();},subDays:function(d,n){var r=new Date(d);r.setDate(r.getDate()-n);return r;},addDays:function(d,n){var r=new Date(d);r.setDate(r.getDate()+n);return r;},startOfWeek:function(d){var r=new Date(d);r.setDate(r.getDate()-r.getDay());return r;},endOfWeek:function(d){var r=new Date(d);r.setDate(r.getDate()+(6-r.getDay()));return r;},isAfter:function(a,b){return new Date(a)>new Date(b);},isBefore:function(a,b){return new Date(a)<new Date(b);},parseISO:function(s){return new Date(s);},differenceInDays:function(a,b){return Math.round((new Date(a).getTime()-new Date(b).getTime())/86400000);}};
+
+    /* ── Recharts shim ── */
+    var rcNoop=function(p){return h('div',{className:p&&p.className,style:Object.assign({width:p&&p.width||'100%',height:p&&p.height||200},p&&p.style||{})},p&&p.children);};
+    var rechartsShim={ResponsiveContainer:rcNoop,LineChart:rcNoop,BarChart:rcNoop,AreaChart:rcNoop,PieChart:rcNoop,RadarChart:rcNoop,ComposedChart:rcNoop,Line:function(){return null;},Bar:function(){return null;},Area:function(){return null;},Pie:function(){return null;},XAxis:function(){return null;},YAxis:function(){return null;},CartesianGrid:function(){return null;},Tooltip:function(){return null;},Legend:function(){return null;},Cell:function(){return null;},RadialBar:function(){return null;},Radar:function(){return null;},PolarGrid:function(){return null;},PolarAngleAxis:function(){return null;},PolarRadiusAxis:function(){return null;}};
+
+    /* ── Zod shim ── */
+    var zChain={string:function(){return zChain;},number:function(){return zChain;},boolean:function(){return zChain;},array:function(){return zChain;},object:function(){return zChain;},optional:function(){return zChain;},nullable:function(){return zChain;},min:function(){return zChain;},max:function(){return zChain;},email:function(){return zChain;},url:function(){return zChain;},uuid:function(){return zChain;},regex:function(){return zChain;},default:function(){return zChain;},transform:function(){return zChain;},refine:function(){return zChain;},parse:function(v){return v;},safeParse:function(v){return{success:true,data:v};},enum:function(){return zChain;}};
+    var zodShim={z:Object.assign(function(){return zChain;},zChain,{infer:undefined,enum:function(){return zChain;},union:function(){return zChain;},intersection:function(){return zChain;},literal:function(){return zChain;},tuple:function(){return zChain;},record:function(){return zChain;},map:function(){return zChain;},any:function(){return zChain;},unknown:function(){return zChain;},void:function(){return zChain;},never:function(){return zChain;},coerce:{string:function(){return zChain;},number:function(){return zChain;},boolean:function(){return zChain;},date:function(){return zChain;}}}),ZodError:function(issues){this.issues=issues||[];}};
+
+    /* ── Headless UI shim ── */
+    var hTab=function(p){return h('div',{className:p&&p.className},p&&p.children);};
+    hTab.Group=function(p){return h('div',{className:p&&p.className},p&&p.children);};
+    hTab.List=function(p){return h('div',{className:p&&p.className,role:'tablist'},p&&p.children);};
+    hTab.Panels=function(p){return h('div',{className:p&&p.className},p&&p.children);};
+    hTab.Panel=function(p){return h('div',{className:p&&p.className,role:'tabpanel'},p&&p.children);};
+    var headlessShim={Dialog:function(p){return p.open?h('div',{className:p&&p.className,role:'dialog'},p&&p.children):null;},Transition:Object.assign(function(p){return p.show!==false?h('div',{className:p&&p.className},p&&p.children):null;},{Child:function(p){return h('div',{className:p&&p.className},p&&p.children);},Root:function(p){return p.show!==false?h('div',{className:p&&p.className},p&&p.children):null;}}),Menu:Object.assign(function(p){return h('div',{className:p&&p.className},p&&p.children);},{Button:function(p){return h('button',{className:p&&p.className,onClick:p&&p.onClick},p&&p.children);},Items:function(p){return h('div',{className:p&&p.className,role:'menu'},p&&p.children);},Item:function(p){return h('div',{className:p&&p.className,role:'menuitem'},typeof p.children==='function'?p.children({active:false}):p&&p.children);}}),Listbox:Object.assign(function(p){return h('div',{className:p&&p.className},p&&p.children);},{Button:function(p){return h('button',{className:p&&p.className},p&&p.children);},Options:function(p){return h('div',{className:p&&p.className},p&&p.children);},Option:function(p){return h('div',{className:p&&p.className},typeof p.children==='function'?p.children({active:false,selected:false}):p&&p.children);}}),Switch:function(p){return h('button',{className:p&&p.className,role:'switch','aria-checked':!!p.checked,onClick:function(){if(p.onChange)p.onChange(!p.checked);}},p&&p.children);},Disclosure:Object.assign(function(p){return h('div',{className:p&&p.className},typeof p.children==='function'?p.children({open:true}):p&&p.children);},{Button:function(p){return h('button',{className:p&&p.className,onClick:p&&p.onClick},p&&p.children);},Panel:function(p){return h('div',{className:p&&p.className},p&&p.children);}}),Tab:hTab,Popover:Object.assign(function(p){return h('div',{className:p&&p.className},p&&p.children);},{Button:function(p){return h('button',{className:p&&p.className},p&&p.children);},Panel:function(p){return h('div',{className:p&&p.className},p&&p.children);}})};
+
+    /* ── @tanstack/react-query shim ── */
+    var queryShim={QueryClient:function(){return{};},QueryClientProvider:function(p){return p.children||null;},useQuery:function(opts){return{data:undefined,isLoading:false,error:null,refetch:function(){}};},useMutation:function(){return{mutate:function(){},mutateAsync:function(){return Promise.resolve();},isLoading:false,error:null};},useQueryClient:function(){return{invalidateQueries:function(){},setQueryData:function(){}};}};
+
+    /* ── react-hook-form shim ── */
+    var rhfShim={useForm:function(){return{register:function(n){return{name:n,onChange:function(){},onBlur:function(){},ref:function(){}};},handleSubmit:function(fn){return function(e){if(e&&e.preventDefault)e.preventDefault();fn({});};},watch:function(){return '';},setValue:function(){},getValues:function(){return{};},formState:{errors:{},isSubmitting:false,isValid:true},control:{},reset:function(){}};},Controller:function(p){return typeof p.render==='function'?p.render({field:{value:'',onChange:function(){},onBlur:function(){},name:p.name||'',ref:function(){}},fieldState:{error:undefined}}):null;},FormProvider:function(p){return p.children;},useFormContext:function(){return{register:function(n){return{name:n};},watch:function(){return '';},formState:{errors:{}}};}};
+
     /* ── Utility shims ── */
     function cn(){return Array.prototype.slice.call(arguments).filter(function(a){return typeof a==='string'&&a;}).join(' ');}
 
@@ -178,7 +211,14 @@ function bundleWebAppToHtml(project: Project): string {
       'class-variance-authority':function(){return{cva:function(b){return function(){return b;};}};},
       'clsx':function(){return{clsx:cn,default:cn};},
       'tailwind-merge':function(){return{twMerge:cn};},
-      '@/lib/utils':function(){return{cn:cn};}
+      '@/lib/utils':function(){return{cn:cn};},
+      'date-fns':function(){return dateFnsShim;},
+      'recharts':function(){return rechartsShim;},
+      'zod':function(){return zodShim;},
+      '@headlessui/react':function(){return headlessShim;},
+      '@tanstack/react-query':function(){return queryShim;},
+      'react-hook-form':function(){return rhfShim;},
+      'axios':function(){return{default:Object.assign(function(cfg){return Promise.resolve({data:{},status:200});},{get:function(u){return Promise.resolve({data:{},status:200});},post:function(u,d){return Promise.resolve({data:{},status:200});},put:function(u,d){return Promise.resolve({data:{},status:200});},delete:function(u){return Promise.resolve({data:{},status:200});},create:function(){return this;}})};}
     };
 
     /* ── Module require ── */
@@ -205,8 +245,29 @@ function bundleWebAppToHtml(project: Project): string {
       return __cache[mp];
     }
 
+    /* ── Error boundary component ── */
+    var ErrorBoundary=(function(){
+      function EB(props){this.props=props;this.state={hasError:false,error:null};}
+      EB.prototype=Object.create(React.Component.prototype);
+      EB.prototype.constructor=EB;
+      EB.getDerivedStateFromError=function(e){return{hasError:true,error:e};};
+      EB.prototype.componentDidCatch=function(e,info){console.error('[sandbox] Component error:',e.message);window.parent.postMessage({type:'sandbox-log',level:'error',message:'Component crash: '+e.message},'*');};
+      EB.prototype.render=function(){if(this.state.hasError){return h('div',{style:{padding:'16px',margin:'8px',borderRadius:'8px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)'}},h('p',{style:{fontSize:'12px',fontWeight:600,color:'#ef4444',marginBottom:'4px'}},'Component Error'),h('p',{style:{fontSize:'11px',fontFamily:'monospace',color:'${textSecondary}',wordBreak:'break-all'}},(this.state.error&&this.state.error.message)||'Unknown error'),h('button',{onClick:function(){this.setState({hasError:false,error:null});}.bind(this),style:{marginTop:'8px',fontSize:'11px',padding:'4px 10px',borderRadius:'6px',background:'rgba(255,255,255,0.1)',color:'${textPrimary}',border:'1px solid rgba(255,255,255,0.2)',cursor:'pointer'}},'Retry'));}return this.props.children;};
+      return EB;
+    })();
+
+    /* ── Console interceptor with levels ── */
+    var origLog=console.log,origWarn=console.warn,origErr=console.error,origInfo=console.info;
+    function sendLog(level,args){var msg=Array.prototype.slice.call(args).map(function(a){return typeof a==='object'?JSON.stringify(a):String(a);}).join(' ');window.parent.postMessage({type:'sandbox-log',level:level,message:msg},'*');}
+    console.log=function(){sendLog('log',arguments);origLog.apply(console,arguments);};
+    console.warn=function(){sendLog('warn',arguments);origWarn.apply(console,arguments);};
+    console.error=function(){sendLog('error',arguments);origErr.apply(console,arguments);};
+    console.info=function(){sendLog('info',arguments);origInfo.apply(console,arguments);};
+
     /* ── Transpile & mount ── */
-    try{
+    var __root=null;
+    function compileAll(){
+      __compiled={};__cache={};
       for(var i=0;i<__files.length;i++){
         var file=__files[i],path=file.path;
         if(!path.match(/\\.(tsx?|jsx?|js)$/))continue;
@@ -221,7 +282,9 @@ function bundleWebAppToHtml(project: Project): string {
           __compiled[path]=r.code;
         }catch(e){console.error('[sandbox] Transpile:',path,e.message);}
       }
+    }
 
+    function renderApp(){
       document.getElementById('sandbox-loading').style.display='none';
       document.getElementById('root').style.display='';
 
@@ -235,9 +298,15 @@ function bundleWebAppToHtml(project: Project): string {
         }
         throw new Error('App component not found. Files: '+Object.keys(__compiled).join(', '));
       }
-      ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+      if(!__root) __root=ReactDOM.createRoot(document.getElementById('root'));
+      __root.render(h(ErrorBoundary,null,h(App)));
       window.parent.postMessage({type:'sandbox-ready'},'*');
       window.parent.postMessage({type:'preview-ready'},'*');
+    }
+
+    try{
+      compileAll();
+      renderApp();
     }catch(e){
       console.error('[sandbox] Boot:',e);
       var el=document.getElementById('sandbox-loading');
@@ -246,6 +315,19 @@ function bundleWebAppToHtml(project: Project): string {
       window.parent.postMessage({type:'preview-runtime-error',message:e.message||'Boot error'},'*');
     }
     window.onerror=function(msg){window.parent.postMessage({type:'sandbox-error',message:String(msg)},'*');window.parent.postMessage({type:'preview-runtime-error',message:String(msg)},'*');};
+
+    /* ── HMR: hot-swap patched files from parent ── */
+    window.addEventListener('message',function(ev){
+      if(ev.data&&ev.data.type==='hmr-update'&&ev.data.files){
+        var patchedFiles=ev.data.files;
+        for(var i=0;i<patchedFiles.length;i++){
+          var pf=patchedFiles[i];
+          var idx=__files.findIndex(function(f){return f.path===pf.path;});
+          if(idx>=0)__files[idx]=pf;else __files.push(pf);
+        }
+        try{compileAll();renderApp();window.parent.postMessage({type:'sandbox-log',level:'info',message:'[HMR] '+patchedFiles.length+' file(s) hot-swapped'},'*');}catch(e){console.error('[HMR] Re-render failed:',e.message);}
+      }
+    });
   })();
   ${CS}
 </body>
@@ -263,10 +345,11 @@ export function LiveSandbox({
 }) {
   const [status, setStatus] = useState<SandboxStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<SandboxLog[]>([]);
   const [sandboxHtml, setSandboxHtml] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const buildSandbox = useCallback(() => {
@@ -274,7 +357,7 @@ export function LiveSandbox({
 
     setStatus("loading");
     setError(null);
-    setLogs([]);
+    setLogs([] as SandboxLog[]);
 
     try {
       const html = bundleWebAppToHtml(project);
@@ -297,7 +380,8 @@ export function LiveSandbox({
         setError(data.message ?? "Sandbox error");
         setStatus("error");
       } else if (data?.type === "sandbox-log") {
-        setLogs((prev) => [...prev.slice(-50), `[${data.level ?? "log"}] ${data.message}`]);
+        const level = (data.level ?? "log") as LogLevel;
+        setLogs((prev) => [...prev.slice(-100), { level, message: data.message ?? "", timestamp: Date.now() }]);
       }
     };
     window.addEventListener("message", handler);
@@ -412,19 +496,48 @@ export function LiveSandbox({
       </div>
 
       {/* Console logs */}
-      {showLogs && logs.length > 0 && (
-        <div className="border-t border-border/40 bg-[hsl(228_20%_4%)] max-h-32 overflow-auto">
-          <div className="px-3 py-1 border-b border-border/40 flex items-center gap-1.5">
-            <Terminal size={10} className="text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground">Console ({logs.length})</span>
+      {showLogs && logs.length > 0 && (() => {
+        const filtered = logFilter === "all" ? logs : logs.filter(l => l.level === logFilter);
+        const errorCount = logs.filter(l => l.level === "error").length;
+        const warnCount = logs.filter(l => l.level === "warn").length;
+        return (
+          <div className="border-t border-border/40 bg-[hsl(228_20%_4%)] max-h-40 overflow-auto">
+            <div className="px-3 py-1 border-b border-border/40 flex items-center gap-1.5">
+              <Terminal size={10} className="text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground">Console ({filtered.length})</span>
+              <div className="flex items-center gap-1 ml-auto">
+                <Filter size={9} className="text-muted-foreground" />
+                {(["all", "error", "warn", "info", "log"] as const).map(level => (
+                  <button
+                    key={level}
+                    onClick={() => setLogFilter(level)}
+                    className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+                      logFilter === level
+                        ? "bg-primary/20 text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    } ${level === "error" && errorCount > 0 ? "text-red-400" : ""} ${level === "warn" && warnCount > 0 ? "text-yellow-400" : ""}`}
+                  >
+                    {level}{level === "error" && errorCount > 0 ? ` (${errorCount})` : ""}{level === "warn" && warnCount > 0 ? ` (${warnCount})` : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="p-2 font-mono text-[11px] space-y-0.5">
+              {filtered.map((log, i) => (
+                <div key={i} className={`${
+                  log.level === "error" ? "text-red-400" :
+                  log.level === "warn" ? "text-yellow-400" :
+                  log.level === "info" ? "text-blue-400" :
+                  "text-muted-foreground/80"
+                }`}>
+                  <span className="text-muted-foreground/50 mr-1.5">[{log.level}]</span>
+                  {log.message}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="p-2 font-mono text-[11px] space-y-0.5">
-            {logs.map((log, i) => (
-              <div key={i} className="text-muted-foreground/80">{log}</div>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {fullscreen && (
         <p className="text-[10px] text-muted-foreground/60 text-center py-1.5 shrink-0">

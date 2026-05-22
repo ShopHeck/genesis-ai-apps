@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -47,8 +47,11 @@ import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
 export default function Generator() {
   const { user, plan, monthlyUsage } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [prompt, setPrompt] = useState("");
   const [target, setTarget] = useState<"ios" | "web">("ios");
+  const [parentGenerationId, setParentGenerationId] = useState<string | null>(null);
+  const [remixMode, setRemixMode] = useState(false);
   const [provider, setProvider] = useState<"gemini" | "anthropic" | "opencode">("gemini");
   const [stage, setStage] = useState<Stage>("idle");
   const [project, setProject] = useState<Project | null>(null);
@@ -107,6 +110,33 @@ export default function Generator() {
     const el = terminalRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [logs]);
+
+  // Handle query params from Dashboard (re-generate / remix)
+  useEffect(() => {
+    const regenerateId = searchParams.get("regenerate");
+    const remixId = searchParams.get("remix");
+    const prefillPrompt = searchParams.get("prompt");
+    const prefillTarget = searchParams.get("target") as "ios" | "web" | null;
+
+    if (prefillPrompt) setPrompt(decodeURIComponent(prefillPrompt));
+    if (prefillTarget === "ios" || prefillTarget === "web") setTarget(prefillTarget);
+
+    if (regenerateId) {
+      setParentGenerationId(regenerateId);
+      setRemixMode(false);
+      toast.info("Re-generating from previous build");
+    } else if (remixId) {
+      setParentGenerationId(remixId);
+      setRemixMode(true);
+      toast.info("Remix mode — edit the prompt and generate");
+    }
+
+    // Clear query params after reading
+    if (regenerateId || remixId) {
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   const handleGenerate = async () => {
@@ -209,6 +239,29 @@ export default function Generator() {
               else if (percent >= 30) setStage("generating");
               else setStage("analyzing");
             }
+          } else if (event.type === "file") {
+            // Streaming file event — add file incrementally to project
+            const filePath = event.path as string;
+            const fileContent = event.content as string;
+            const filePhase = event.phase as string;
+            if (filePath && fileContent) {
+              setProject(prev => {
+                if (!prev) {
+                  return { appName: "Generating…", bundleId: "", summary: "", files: [{ path: filePath, content: fileContent }] };
+                }
+                const existing = prev.files.findIndex(f => f.path === filePath);
+                const newFiles = [...prev.files];
+                if (existing >= 0) newFiles[existing] = { path: filePath, content: fileContent };
+                else newFiles.push({ path: filePath, content: fileContent });
+                return { ...prev, files: newFiles };
+              });
+              if (!selectedFile) setSelectedFile(filePath);
+              if (filePhase === "scaffold") {
+                pushLog("thought", `[scaffold] ${filePath}`);
+              } else {
+                pushLog("action", `[engineer] ${filePath}`);
+              }
+            }
           } else if (event.type === "result") {
             const data = event.project as Project & { plan?: unknown };
             if (!data?.files?.length) throw new Error("Empty project returned.");
@@ -239,8 +292,22 @@ export default function Generator() {
             if (patchedFiles.length > 0) {
               setProject(prev => prev ? { ...prev, files: patchedFiles } : prev);
               const score = event.reviewScore as number | undefined;
-              pushLog("action", `[reviewer] quality score: ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
-              toast.info("Review complete — files updated with quality fixes");
+              const beforeScore = event.beforeScore as number | undefined;
+              const autoRefined = event.autoRefined as boolean | undefined;
+
+              // HMR: send patched files to LiveSandbox iframe for hot-swap
+              const sandboxIframe = document.querySelector<HTMLIFrameElement>("iframe[title*='live sandbox']");
+              if (sandboxIframe?.contentWindow) {
+                sandboxIframe.contentWindow.postMessage({ type: "hmr-update", files: patchedFiles }, "*");
+              }
+
+              if (autoRefined && beforeScore !== undefined) {
+                pushLog("action", `[quality] auto-refined: ${beforeScore} → ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
+                toast.info(`Quality auto-refined: ${beforeScore} → ${score ?? "—"}/100`);
+              } else {
+                pushLog("action", `[reviewer] quality score: ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
+                toast.info("Review complete — files updated with quality fixes");
+              }
             }
           } else if (event.type === "review") {
             const score = event.reviewScore as number | undefined;
@@ -462,6 +529,33 @@ export default function Generator() {
               {target === "web" ? "React + Tailwind + Vite" : "SwiftUI + Swift 6 + Xcode 16"}
             </span>
           </div>
+
+          {/* Remix / Re-generate indicator */}
+          {parentGenerationId && (
+            <div className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-lg border text-xs ${
+              remixMode
+                ? "bg-violet-400/10 border-violet-400/30 text-violet-300"
+                : "bg-emerald-400/10 border-emerald-400/30 text-emerald-300"
+            }`}>
+              {remixMode ? (
+                <>
+                  <Pencil size={12} />
+                  <span>Remix mode — edit the prompt below, then generate a new version</span>
+                </>
+              ) : (
+                <>
+                  <RotateCcw size={12} />
+                  <span>Re-generating from previous build — click Generate to start</span>
+                </>
+              )}
+              <button
+                onClick={() => { setParentGenerationId(null); setRemixMode(false); }}
+                className="ml-auto text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           <Textarea
             value={prompt}

@@ -1,21 +1,27 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Play,
+  Smartphone,
+  Tablet,
+  Monitor,
+  Globe,
   RefreshCw,
   Loader2,
   AlertTriangle,
   Maximize2,
   Minimize2,
-  CheckCircle2,
-  XCircle,
   Terminal,
   Filter,
+  RotateCcw,
+  RotateCw,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Project } from "./types";
 
 type SandboxStatus = "idle" | "loading" | "ready" | "error";
 type LogLevel = "info" | "warn" | "error" | "log";
+type DeviceMode = "mobile" | "tablet" | "desktop";
+type Orientation = "portrait" | "landscape";
 
 interface SandboxLog {
   level: LogLevel;
@@ -28,6 +34,56 @@ interface SandboxMessage {
   message?: string;
   level?: string;
 }
+
+const DEVICE_CONFIG: Record<DeviceMode, {
+  label: string;
+  icon: typeof Smartphone;
+  iframeW: number;
+  iframeH: number;
+  frameClass: string;
+  frameRadius: string;
+  notch: boolean;
+  hint: string;
+  supportsRotation: boolean;
+}> = {
+  mobile: {
+    label: "Mobile",
+    icon: Smartphone,
+    iframeW: 390,
+    iframeH: 844,
+    frameClass: "rounded-[44px] p-[10px]",
+    frameRadius: "36px",
+    notch: true,
+    hint: "iPhone 15 · 390×844",
+    supportsRotation: true,
+  },
+  tablet: {
+    label: "Tablet",
+    icon: Tablet,
+    iframeW: 820,
+    iframeH: 1180,
+    frameClass: "rounded-[24px] p-[12px]",
+    frameRadius: "16px",
+    notch: false,
+    hint: "iPad · 820×1180",
+    supportsRotation: true,
+  },
+  desktop: {
+    label: "Desktop",
+    icon: Monitor,
+    iframeW: 1280,
+    iframeH: 800,
+    frameClass: "rounded-[12px] p-[8px]",
+    frameRadius: "4px",
+    notch: false,
+    hint: "Desktop · 1280×800",
+    supportsRotation: false,
+  },
+};
+
+const PREVIEW_PANEL_MAX_W = 820;
+const PREVIEW_PANEL_MAX_H = 640;
+const FULLSCREEN_PADDING = 48;
 
 /**
  * Bundles generated web app files into a self-contained HTML document that
@@ -347,18 +403,34 @@ export function LiveSandbox({
 }) {
   const [status, setStatus] = useState<SandboxStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [logs, setLogs] = useState<SandboxLog[]>([]);
   const [sandboxHtml, setSandboxHtml] = useState<string | null>(null);
+  const [device, setDevice] = useState<DeviceMode>("desktop");
+  const [orientation, setOrientation] = useState<Orientation>("portrait");
   const [fullscreen, setFullscreen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const cfg = DEVICE_CONFIG[device];
+  const effectiveW = orientation === "landscape" && cfg.supportsRotation ? cfg.iframeH : cfg.iframeW;
+  const effectiveH = orientation === "landscape" && cfg.supportsRotation ? cfg.iframeW : cfg.iframeH;
+
+  const maxW = fullscreen ? window.innerWidth - FULLSCREEN_PADDING * 2 : PREVIEW_PANEL_MAX_W;
+  const maxH = fullscreen ? window.innerHeight - FULLSCREEN_PADDING * 2 - 80 : PREVIEW_PANEL_MAX_H;
+  const scaleW = maxW / effectiveW;
+  const scaleH = maxH / effectiveH;
+  const scale = Math.min(scaleW, scaleH, 1);
+  const visW = Math.round(effectiveW * scale);
+  const visH = Math.round(effectiveH * scale);
 
   const buildSandbox = useCallback(() => {
     if (target !== "web") return;
 
     setStatus("loading");
     setError(null);
+    setRuntimeError(null);
     setLogs([] as SandboxLog[]);
 
     try {
@@ -378,9 +450,9 @@ export function LiveSandbox({
       const data = e.data as SandboxMessage;
       if (data?.type === "sandbox-ready") {
         setStatus("ready");
+        setRuntimeError(null);
       } else if (data?.type === "sandbox-error") {
-        setError(data.message ?? "Sandbox error");
-        setStatus("error");
+        setRuntimeError(data.message ?? "Sandbox error");
       } else if (data?.type === "sandbox-log") {
         const level = (data.level ?? "log") as LogLevel;
         setLogs((prev) => [...prev.slice(-100), { level, message: data.message ?? "", timestamp: Date.now() }]);
@@ -406,146 +478,287 @@ export function LiveSandbox({
     return () => window.removeEventListener("keydown", handler);
   }, [fullscreen]);
 
+  // Reset orientation when switching to non-rotatable device
+  useEffect(() => {
+    if (orientation === "landscape" && !cfg.supportsRotation) {
+      setOrientation("portrait");
+    }
+  }, [device, cfg.supportsRotation, orientation]);
+
+  const handleDownloadPreview = useCallback(() => {
+    if (!sandboxHtml) return;
+    const blob = new Blob([sandboxHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${project.appName}-preview.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [sandboxHtml, project.appName]);
+
   // Only show for web target
   if (target !== "web") return null;
 
-  const statusIcon = status === "ready" ? (
-    <CheckCircle2 size={12} className="text-emerald-400" />
-  ) : status === "error" ? (
-    <XCircle size={12} className="text-destructive" />
-  ) : status === "loading" ? (
-    <Loader2 size={12} className="animate-spin text-primary" />
+  const notchElement = cfg.notch ? (
+    orientation === "portrait" ? (
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-6 bg-black rounded-full z-10 pointer-events-none" />
+    ) : (
+      <div className="absolute left-2 top-1/2 -translate-y-1/2 w-6 h-28 bg-black rounded-full z-10 pointer-events-none" />
+    )
   ) : null;
 
+  const hintText = orientation === "landscape" && cfg.supportsRotation
+    ? `${cfg.hint.split("·")[0]}· ${effectiveW}×${effectiveH} (landscape)`
+    : cfg.hint;
+
+  const errorCount = logs.filter(l => l.level === "error").length;
+  const warnCount = logs.filter(l => l.level === "warn").length;
+  const filtered = logFilter === "all" ? logs : logs.filter(l => l.level === logFilter);
+
   return (
-    <div className={fullscreen ? "fixed inset-0 z-50 bg-background flex flex-col" : "glass-panel overflow-hidden"}>
+    <div className={fullscreen ? "fixed inset-0 z-50 bg-background/95 backdrop-blur-xl flex flex-col overflow-auto p-12" : "glass-panel p-6"}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-card/40">
-        <div className="flex items-center gap-2">
-          <Play size={14} className="text-primary" />
-          <span className="text-xs font-medium text-foreground">Live Sandbox</span>
-          <div className="flex items-center gap-1.5">
-            {statusIcon}
-            <span className="text-[10px] text-muted-foreground">
-              {status === "ready" ? "Running" : status === "loading" ? "Building…" : status === "error" ? "Error" : "Idle"}
-            </span>
+      <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-primary font-medium">
+            <Globe size={12} /> Live Preview
+            {status === "ready" && (
+              <span className="text-[9px] normal-case tracking-normal text-emerald-400/80 bg-emerald-400/10 px-1.5 py-0.5 rounded">
+                running
+              </span>
+            )}
+            {status === "loading" && (
+              <Loader2 size={10} className="animate-spin" />
+            )}
           </div>
-          <span className="text-[9px] text-emerald-400/80 bg-emerald-400/10 px-1.5 py-0.5 rounded">
-            live code
-          </span>
+          <h3 className="font-display text-lg font-semibold mt-1">
+            {project.appName}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            Your generated web app running live — click through screens,
+            fill forms, and test navigation in a sandboxed environment.
+          </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {sandboxHtml && (
+            <Button
+              onClick={handleDownloadPreview}
+              variant="outline"
+              size="sm"
+              className="border-border/60"
+              title="Download preview as HTML"
+            >
+              <Camera size={14} />
+              <span className="hidden sm:inline ml-1">Save</span>
+            </Button>
+          )}
           <Button
-            variant="ghost"
+            onClick={() => setFullscreen(!fullscreen)}
+            variant="outline"
             size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            className="border-border/60"
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen preview"}
+          >
+            {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </Button>
+          <Button
+            onClick={buildSandbox}
+            variant="outline"
+            size="sm"
+            className="border-border/60"
+          >
+            <RefreshCw size={14} />
+            Rebuild
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={`border-border/60 ${showLogs ? "bg-primary/10 text-primary border-primary/30" : ""}`}
             onClick={() => setShowLogs(!showLogs)}
             title="Toggle console"
           >
-            <Terminal size={13} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            onClick={buildSandbox}
-            title="Rebuild sandbox"
-          >
-            <RefreshCw size={13} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            onClick={() => setFullscreen(!fullscreen)}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <Terminal size={14} />
+            {errorCount > 0 && (
+              <span className="text-[10px] text-red-400 ml-1">{errorCount}</span>
+            )}
           </Button>
         </div>
       </div>
 
-      {/* Sandbox iframe */}
-      <div className="flex-1" style={{ height: fullscreen ? "calc(100vh - 44px)" : 480 }}>
-        {status === "loading" && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <Loader2 className="animate-spin text-primary" size={28} />
-            <p className="text-sm">Building live sandbox…</p>
-          </div>
-        )}
+      {/* Device switcher */}
+      <div className="flex items-center gap-3 mb-5 justify-center flex-wrap">
+        <div className="flex items-center gap-1 bg-card/40 rounded-lg p-1 border border-border/40">
+          {(Object.keys(DEVICE_CONFIG) as DeviceMode[]).map((d) => {
+            const dc = DEVICE_CONFIG[d];
+            const Icon = dc.icon;
+            return (
+              <button
+                key={d}
+                onClick={() => setDevice(d)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  device === d
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon size={13} />
+                <span className="hidden sm:inline">{dc.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        {status === "error" && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center">
-            <AlertTriangle className="text-destructive" size={28} />
-            <p className="text-sm text-foreground font-medium">Sandbox build failed</p>
-            <p className="text-xs text-muted-foreground max-w-md">{error}</p>
-            <Button onClick={buildSandbox} size="sm" variant="outline" className="mt-2">
-              <RefreshCw size={12} /> Retry
-            </Button>
-          </div>
-        )}
-
-        {(status === "ready" || status === "idle") && sandboxHtml && (
-          <iframe
-            ref={iframeRef}
-            title={`${project.appName} live sandbox`}
-            srcDoc={sandboxHtml}
-            sandbox="allow-scripts allow-forms allow-same-origin"
-            className="w-full h-full border-0"
-            style={{ colorScheme: "dark" }}
-          />
+        {cfg.supportsRotation && (
+          <button
+            onClick={() => setOrientation((prev) => (prev === "portrait" ? "landscape" : "portrait"))}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all border border-border/40 ${
+              orientation === "landscape"
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "text-muted-foreground hover:text-foreground bg-card/40"
+            }`}
+            title={`Switch to ${orientation === "portrait" ? "landscape" : "portrait"}`}
+          >
+            <RotateCcw size={13} />
+            <span className="hidden sm:inline">
+              {orientation === "portrait" ? "Landscape" : "Portrait"}
+            </span>
+          </button>
         )}
       </div>
 
-      {/* Console logs */}
-      {showLogs && logs.length > 0 && (() => {
-        const filtered = logFilter === "all" ? logs : logs.filter(l => l.level === logFilter);
-        const errorCount = logs.filter(l => l.level === "error").length;
-        const warnCount = logs.filter(l => l.level === "warn").length;
-        return (
-          <div className="border-t border-border/40 bg-[hsl(228_20%_4%)] max-h-40 overflow-auto">
-            <div className="px-3 py-1 border-b border-border/40 flex items-center gap-1.5">
-              <Terminal size={10} className="text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground">Console ({filtered.length})</span>
-              <div className="flex items-center gap-1 ml-auto">
-                <Filter size={9} className="text-muted-foreground" />
-                {(["all", "error", "warn", "info", "log"] as const).map(level => (
-                  <button
-                    key={level}
-                    onClick={() => setLogFilter(level)}
-                    className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
-                      logFilter === level
-                        ? "bg-primary/20 text-primary"
-                        : "text-muted-foreground hover:text-foreground"
-                    } ${level === "error" && errorCount > 0 ? "text-red-400" : ""} ${level === "warn" && warnCount > 0 ? "text-yellow-400" : ""}`}
+      {/* Device frame with preview */}
+      <div className="flex justify-center">
+        <div style={{ width: visW, height: visH }} className="relative">
+          <div
+            className={`absolute inset-0 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.7)] ${cfg.frameClass}`}
+            style={{
+              background: "linear-gradient(145deg, hsl(var(--border)) 0%, hsl(var(--card)) 100%)",
+            }}
+          >
+            <div
+              className="relative w-full h-full overflow-hidden bg-black"
+              style={{ borderRadius: cfg.frameRadius }}
+            >
+              {notchElement}
+
+              <div
+                style={{
+                  width: effectiveW,
+                  height: effectiveH,
+                  transform: `scale(${scale})`,
+                  transformOrigin: "top left",
+                  pointerEvents: "auto",
+                }}
+              >
+                {status === "loading" && (
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 text-muted-foreground bg-[hsl(228_20%_4%)]"
+                    style={{ width: effectiveW, height: effectiveH }}
                   >
-                    {level}{level === "error" && errorCount > 0 ? ` (${errorCount})` : ""}{level === "warn" && warnCount > 0 ? ` (${warnCount})` : ""}
-                  </button>
-                ))}
+                    <Loader2 className="animate-spin text-primary" size={32} />
+                    <p className="text-sm font-mono">building live preview…</p>
+                    <p className="text-xs text-muted-foreground/60 max-w-[260px] text-center">
+                      Transpiling React components and mounting your app
+                    </p>
+                  </div>
+                )}
+
+                {status === "error" && !sandboxHtml && (
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 p-8 text-center bg-[hsl(228_20%_4%)]"
+                    style={{ width: effectiveW, height: effectiveH }}
+                  >
+                    <AlertTriangle className="text-destructive" size={28} />
+                    <p className="text-sm text-foreground font-medium">Preview failed</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">{error}</p>
+                    <Button onClick={buildSandbox} size="sm" variant="outline" className="mt-2">
+                      <RefreshCw size={12} /> Retry
+                    </Button>
+                  </div>
+                )}
+
+                {(status === "ready" || status === "idle" || (status === "error" && sandboxHtml)) && sandboxHtml && (
+                  <iframe
+                    ref={iframeRef}
+                    title={`${project.appName} live sandbox`}
+                    srcDoc={sandboxHtml}
+                    sandbox="allow-scripts allow-forms allow-same-origin"
+                    className="border-0 bg-black"
+                    style={{ width: effectiveW, height: effectiveH, colorScheme: "dark", display: "block" }}
+                  />
+                )}
               </div>
             </div>
-            <div className="p-2 font-mono text-[11px] space-y-0.5">
-              {filtered.map((log, i) => (
-                <div key={i} className={`${
-                  log.level === "error" ? "text-red-400" :
-                  log.level === "warn" ? "text-yellow-400" :
-                  log.level === "info" ? "text-blue-400" :
-                  "text-muted-foreground/80"
-                }`}>
-                  <span className="text-muted-foreground/50 mr-1.5">[{log.level}]</span>
-                  {log.message}
-                </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Runtime error banner */}
+      {runtimeError && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+          <AlertTriangle className="text-destructive shrink-0 mt-0.5" size={14} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-foreground">Preview runtime error</p>
+            <p className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate">{runtimeError}</p>
+          </div>
+          <button
+            onClick={buildSandbox}
+            className="text-[11px] text-primary hover:text-primary/80 flex items-center gap-1 shrink-0"
+          >
+            <RotateCw size={11} /> Rebuild
+          </button>
+        </div>
+      )}
+
+      {/* Console logs */}
+      {showLogs && (
+        <div className="mt-4 rounded-lg border border-border/40 bg-[hsl(228_20%_4%)] max-h-48 overflow-hidden flex flex-col">
+          <div className="px-3 py-1.5 border-b border-border/40 flex items-center gap-1.5 shrink-0">
+            <Terminal size={10} className="text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground">Console ({filtered.length})</span>
+            <div className="flex items-center gap-1 ml-auto">
+              <Filter size={9} className="text-muted-foreground" />
+              {(["all", "error", "warn", "info", "log"] as const).map(level => (
+                <button
+                  key={level}
+                  onClick={() => setLogFilter(level)}
+                  className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+                    logFilter === level
+                      ? "bg-primary/20 text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  } ${level === "error" && errorCount > 0 ? "text-red-400" : ""} ${level === "warn" && warnCount > 0 ? "text-yellow-400" : ""}`}
+                >
+                  {level}{level === "error" && errorCount > 0 ? ` (${errorCount})` : ""}{level === "warn" && warnCount > 0 ? ` (${warnCount})` : ""}
+                </button>
               ))}
             </div>
           </div>
-        );
-      })()}
-
-      {fullscreen && (
-        <p className="text-[10px] text-muted-foreground/60 text-center py-1.5 shrink-0">
-          Press Esc to exit fullscreen · Live sandbox running generated code
-        </p>
+          <div className="p-2 font-mono text-[11px] space-y-0.5 overflow-auto">
+            {filtered.length === 0 && (
+              <p className="text-muted-foreground/50 text-center py-2">No logs yet</p>
+            )}
+            {filtered.map((log, i) => (
+              <div key={i} className={`${
+                log.level === "error" ? "text-red-400" :
+                log.level === "warn" ? "text-yellow-400" :
+                log.level === "info" ? "text-blue-400" :
+                "text-muted-foreground/80"
+              }`}>
+                <span className="text-muted-foreground/50 mr-1.5">[{log.level}]</span>
+                {log.message}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
+
+      {/* Footer hint */}
+      <p className="text-[10px] text-muted-foreground/60 text-center mt-3">
+        {hintText} · sandboxed iframe · responsive layout · {scale < 1 ? `scaled ${Math.round(scale * 100)}% to fit` : "1:1"}
+        {fullscreen && " · press Esc to exit"}
+      </p>
     </div>
   );
 }

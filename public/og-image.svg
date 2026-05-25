@@ -1,0 +1,17 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1117"/>
+      <stop offset="100%" style="stop-color:#1a1d2e"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#22d3ee"/>
+      <stop offset="50%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <text x="600" y="280" text-anchor="middle" font-family="system-ui,sans-serif" font-size="72" font-weight="bold" fill="url(#glow)">ApexBuild</text>
+  <text x="600" y="360" text-anchor="middle" font-family="system-ui,sans-serif" font-size="32" fill="#94a3b8">Build mobile apps from plain English</text>
+  <text x="600" y="420" text-anchor="middle" font-family="system-ui,sans-serif" font-size="22" fill="#64748b">AI generates polished, native-feel apps in minutes</text>
+</svg>

@@ -101,6 +101,7 @@ const HeroSection = () => {
                 alt="AI app builder interface showing a smartphone with a generated fitness app and a text prompt"
                 width={1280}
                 height={800}
+                fetchPriority="high"
                 className="w-full h-auto"
               />
             </div>

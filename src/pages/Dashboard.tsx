@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -17,8 +18,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
+import { downloadZip } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -87,11 +87,8 @@ export default function Dashboard() {
       toast.error("Project files not stored — regenerate from Generator");
       return;
     }
-    const zip = new JSZip();
-    const root = zip.folder(gen.app_name ?? "ApexBuild-App")!;
-    gen.files.forEach((f) => root.file(f.path, f.content));
-    const blob = await zip.generateAsync({ type: "blob" });
-    saveAs(blob, `${gen.app_name ?? "app"}.zip`);
+    const folderName = gen.app_name ?? "ApexBuild-App";
+    await downloadZip(folderName, gen.files);
     toast.success("Project downloaded");
   };
 
@@ -109,6 +106,9 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>Dashboard — ApexBuild</title>
+      </Helmet>
       <AuthModal
         open={showAuth && !user}
         onClose={() => { setShowAuth(false); navigate("/"); }}

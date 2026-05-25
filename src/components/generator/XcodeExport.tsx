@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { Apple, Download, Loader2, Package, FolderOpen } from "lucide-react";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { Project } from "./types";
@@ -260,6 +258,10 @@ export function XcodeExportButton({
 
     setExporting(true);
     try {
+      const [{ default: JSZip }, { saveAs }] = await Promise.all([
+        import("jszip"),
+        import("file-saver"),
+      ]);
       const zip = new JSZip();
       const root = zip.folder(project.appName)!;
       const sources = root.folder("Sources")!;

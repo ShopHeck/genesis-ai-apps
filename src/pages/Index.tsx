@@ -1,3 +1,4 @@
+import { Helmet } from "react-helmet-async";
 import Navbar from "@/components/landing/Navbar";
 import HeroSection from "@/components/landing/HeroSection";
 import SocialProofStrip from "@/components/landing/SocialProofStrip";
@@ -13,6 +14,9 @@ import FooterCTA from "@/components/landing/FooterCTA";
 const Index = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>ApexBuild — AI App Generator</title>
+      </Helmet>
       <Navbar />
       <HeroSection />
       <SocialProofStrip />

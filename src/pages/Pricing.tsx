@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Check, Sparkles, Crown, Zap, Loader2 } from "lucide-react";
@@ -105,6 +106,9 @@ export default function Pricing() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>Pricing — ApexBuild</title>
+      </Helmet>
       <AuthModal
         open={showAuth}
         onClose={() => setShowAuth(false)}

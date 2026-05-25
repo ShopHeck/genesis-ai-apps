@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -13,7 +14,6 @@ import {
   Wand2,
   AlertTriangle,
   Check,
-  TerminalSquare,
   Crown,
   Pencil,
   RotateCcw,
@@ -23,17 +23,17 @@ import {
   Layers,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
+import { downloadZip } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, getPlanLimit } from "@/hooks/useAuth";
+import { useGeneration } from "@/hooks/useGeneration";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AuthModal from "@/components/AuthModal";
 
-import type { Project, Stage, LogKind, LogLine } from "@/components/generator/types";
-import { STAGES, STAGE_SCRIPT } from "@/components/generator/stage-config";
+import type { Project } from "@/components/generator/types";
 import { buildTree, FileTreeView } from "@/components/generator/FileTree";
 import { ZipPreviewCard } from "@/components/generator/ZipPreviewCard";
 import { validateProject, ValidationPanel } from "@/components/generator/ValidationPanel";
@@ -43,6 +43,7 @@ import { RefinementChat } from "@/components/generator/RefinementChat";
 import { XcodeExportButton } from "@/components/generator/XcodeExport";
 import { QualityScore } from "@/components/generator/QualityScore";
 import { LiveSandbox } from "@/components/generator/LiveSandbox";
+import { TerminalPanel } from "@/components/generator/TerminalPanel";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
 export default function Generator() {
@@ -53,63 +54,20 @@ export default function Generator() {
   const [parentGenerationId, setParentGenerationId] = useState<string | null>(null);
   const [remixMode, setRemixMode] = useState(false);
   const [provider, setProvider] = useState<"gemini" | "anthropic" | "opencode">("gemini");
-  const [stage, setStage] = useState<Stage>("idle");
-  const [project, setProject] = useState<Project | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [editedFiles, setEditedFiles] = useState<Map<string, string>>(new Map());
-  const [error, setError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [logs, setLogs] = useState<LogLine[]>([]);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [lastPromptUsed, setLastPromptUsed] = useState<string>("");
   const [showAuth, setShowAuth] = useState(false);
   const [regeneratingFile, setRegeneratingFile] = useState(false);
   const [showPlayground, setShowPlayground] = useState(false);
   const [resultTab, setResultTab] = useState<"preview" | "code" | "details">("preview");
-  const startedAt = useRef<number | null>(null);
-  const logIdRef = useRef(0);
-  const terminalRef = useRef<HTMLDivElement | null>(null);
+
+  const generation = useGeneration();
+  const { stage, project, error, elapsed, logs, loading, lastPromptUsed, terminalRef } = generation;
 
   const planLimit = getPlanLimit(plan);
-
-  const loading = stage === "analyzing" || stage === "generating" || stage === "bundling";
-
-  const pushLog = (kind: LogKind, text: string) => {
-    setLogs((prev) => [...prev, { id: ++logIdRef.current, ts: Date.now(), kind, text }]);
-  };
-
-  useEffect(() => {
-    if (!loading) return;
-    const id = setInterval(() => {
-      if (startedAt.current) setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
-    }, 250);
-    return () => clearInterval(id);
-  }, [loading]);
-
-  useEffect(() => {
-    if (stage !== "analyzing" && stage !== "generating" && stage !== "bundling") return;
-    const queue = [...STAGE_SCRIPT[stage]];
-    let cancelled = false;
-    const drip = () => {
-      if (cancelled || queue.length === 0) return;
-      const next = queue.shift()!;
-      pushLog(next.kind, next.text);
-      const delay = 600 + Math.random() * 1200;
-      setTimeout(drip, delay);
-    };
-    const t = setTimeout(drip, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [stage]);
-
-  useEffect(() => {
-    const el = terminalRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs]);
 
   // Handle query params from Dashboard (re-generate / remix)
   useEffect(() => {
@@ -131,199 +89,33 @@ export default function Generator() {
       toast.info("Remix mode — edit the prompt and generate");
     }
 
-    // Clear query params after reading
     if (regenerateId || remixId) {
       setSearchParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Sync selected file from project when it first loads
+  useEffect(() => {
+    if (project && !selectedFile && project.files.length > 0) {
+      setSelectedFile(project.files[0].path);
+    }
+  }, [project, selectedFile]);
 
   const handleGenerate = async () => {
-    if (prompt.trim().length < 10) {
-      toast.error("Describe your app in a bit more detail.");
-      return;
-    }
-
-    if (user && monthlyUsage >= planLimit) {
-      toast.error(`Monthly limit reached (${monthlyUsage}/${planLimit}). Upgrade your plan.`);
-      return;
-    }
-
-    if (!user) {
-      const anonUses = parseInt(localStorage.getItem("apexbuild_anon_uses") ?? "0", 10);
-      if (anonUses >= 1) {
-        setShowAuth(true);
-        toast.info("Sign in to get 3 free builds per month.");
-        return;
-      }
-    }
-
-    setError(null);
-    setProject(null);
     setSelectedFile(null);
     setEditedFiles(new Map());
-    setElapsed(0);
-    setLogs([]);
     setPreviewHtml(null);
     setPreviewError(null);
-    logIdRef.current = 0;
-    startedAt.current = Date.now();
-    setLastPromptUsed(prompt);
-    setStage("analyzing");
-    pushLog("system", `> prompt received (${prompt.trim().length} chars) — target: ${target}`);
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const fnUrl = `${supabaseUrl}/functions/v1/${target === "web" ? "generate-web-app" : "generate-ios-app"}`;
-
-      const resp = await fetch(fnUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": supabaseKey,
-          Authorization: `Bearer ${session?.access_token ?? supabaseKey}`,
-        },
-        body: JSON.stringify({ prompt, provider }),
-      });
-
-      if (!resp.ok || !resp.body) {
-        const errText = await resp.text().catch(() => "");
-        let errMsg = `Generation failed (${resp.status})`;
-        try {
-          const j = JSON.parse(errText);
-          errMsg = j.error ?? j.message ?? (j.code ? `${j.code}: ${j.message ?? ""}`.trim() : null) ?? errMsg;
-        } catch {
-          if (errText) errMsg = errText.slice(0, 200);
-        }
-        throw new Error(errMsg);
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let resultReceived = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (raw === "[DONE]") break;
-
-          let event: { type: string; [key: string]: unknown };
-          try { event = JSON.parse(raw); } catch { continue; }
-
-          if (event.type === "progress") {
-            const phase = event.phase as string;
-            const message = event.message as string;
-            const percent = event.percent as number;
-            const isRetry = phase === "retrying";
-            const kind: LogKind = phase === "done" ? "success"
-              : isRetry ? "warning"
-              : phase === "error" ? "error"
-              : phase === "bundling" ? "action"
-              : phase === "generating" ? "action"
-              : "thought";
-            pushLog(kind, message ?? phase);
-            if (!isRetry && !resultReceived && percent >= 0) {
-              if (percent >= 85) setStage("bundling");
-              else if (percent >= 30) setStage("generating");
-              else setStage("analyzing");
-            }
-          } else if (event.type === "file") {
-            // Streaming file event — add file incrementally to project
-            const filePath = event.path as string;
-            const fileContent = event.content as string;
-            const filePhase = event.phase as string;
-            if (filePath && fileContent) {
-              setProject(prev => {
-                if (!prev) {
-                  return { appName: "Generating…", bundleId: "", summary: "", files: [{ path: filePath, content: fileContent }] };
-                }
-                const existing = prev.files.findIndex(f => f.path === filePath);
-                const newFiles = [...prev.files];
-                if (existing >= 0) newFiles[existing] = { path: filePath, content: fileContent };
-                else newFiles.push({ path: filePath, content: fileContent });
-                return { ...prev, files: newFiles };
-              });
-              if (!selectedFile) setSelectedFile(filePath);
-              if (filePhase === "scaffold") {
-                pushLog("thought", `[scaffold] ${filePath}`);
-              } else {
-                pushLog("action", `[engineer] ${filePath}`);
-              }
-            }
-          } else if (event.type === "result") {
-            const data = event.project as Project & { plan?: unknown };
-            if (!data?.files?.length) throw new Error("Empty project returned.");
-            pushLog("success", `[codegen] generated ${data.files.length} files for "${data.appName}"`);
-
-            if (!user) {
-              const cur = parseInt(localStorage.getItem("apexbuild_anon_uses") ?? "0", 10);
-              localStorage.setItem("apexbuild_anon_uses", String(cur + 1));
-            }
-
-            resultReceived = true;
-            setProject(data as Project);
-            setSelectedFile(data.files[0].path);
-            setStage("done");
-            pushLog("success", "[done] project ready · awaiting download");
-            toast.success(`${data.appName} generated — ${data.files.length} files`);
-
-            if (!user) {
-              setTimeout(() => {
-                toast.info("Sign up to save this project and get more builds", {
-                  action: { label: "Sign in", onClick: () => setShowAuth(true) },
-                  duration: 8000,
-                });
-              }, 2000);
-            }
-          } else if (event.type === "patch") {
-            const patchedFiles = (event.files as Project["files"]) ?? [];
-            if (patchedFiles.length > 0) {
-              setProject(prev => prev ? { ...prev, files: patchedFiles } : prev);
-              const score = event.reviewScore as number | undefined;
-              const beforeScore = event.beforeScore as number | undefined;
-              const autoRefined = event.autoRefined as boolean | undefined;
-
-              // HMR: send patched files to LiveSandbox iframe for hot-swap
-              const sandboxIframe = document.querySelector<HTMLIFrameElement>("iframe[title*='live sandbox']");
-              if (sandboxIframe?.contentWindow) {
-                sandboxIframe.contentWindow.postMessage({ type: "hmr-update", files: patchedFiles }, "*");
-              }
-
-              if (autoRefined && beforeScore !== undefined) {
-                pushLog("action", `[quality] auto-refined: ${beforeScore} → ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
-                toast.info(`Quality auto-refined: ${beforeScore} → ${score ?? "—"}/100`);
-              } else {
-                pushLog("action", `[reviewer] quality score: ${score ?? "—"}/100 · ${patchedFiles.length} files patched`);
-                toast.info("Review complete — files updated with quality fixes");
-              }
-            }
-          } else if (event.type === "review") {
-            const score = event.reviewScore as number | undefined;
-            pushLog("success", `[reviewer] quality score: ${score ?? "—"}/100 · approved`);
-          } else if (event.type === "error") {
-            throw new Error((event.message as string) ?? "Generation failed");
-          }
-        }
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Generation failed";
-      setError(msg);
-      setStage("error");
-      pushLog("error", `[error] ${msg}`);
-      toast.error(msg);
-    }
+    await generation.generate({
+      prompt,
+      target,
+      provider,
+      user,
+      monthlyUsage,
+      planLimit,
+      onAuthRequired: () => setShowAuth(true),
+    });
   };
 
   const handleRegenerateFile = async () => {
@@ -368,11 +160,8 @@ export default function Generator() {
       toast.error("Cannot download: project has validation errors");
       return;
     }
-    const zip = new JSZip();
-    const root = zip.folder(project.appName)!;
-    project.files.forEach((f) => root.file(f.path, editedFiles.get(f.path) ?? f.content));
-    const blob = await zip.generateAsync({ type: "blob" });
-    saveAs(blob, `${project.appName}.zip`);
+    const files = project.files.map((f) => ({ path: f.path, content: editedFiles.get(f.path) ?? f.content }));
+    await downloadZip(project.appName, files);
     toast.success("Project downloaded");
   };
 
@@ -402,7 +191,7 @@ export default function Generator() {
           prompt: lastPromptUsed || prompt,
           appName: project.appName,
           summary: project.summary,
-          plan: project.plan ?? null,
+          plan: (project as Project & { plan?: unknown }).plan ?? null,
           fileManifest,
           sourceCode: keyFiles || undefined,
         },
@@ -420,15 +209,14 @@ export default function Generator() {
     }
   };
 
-  // iOS preview is lazy — user clicks "Generate Preview" in the AppPreview component
-  // instead of auto-triggering the slow AI call after generation completes.
-
-
   const tree = project ? buildTree(project.files) : null;
   const currentFile = project?.files.find((f) => f.path === selectedFile);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <Helmet>
+        <title>Generator — ApexBuild</title>
+      </Helmet>
       <AuthModal open={showAuth} onClose={() => setShowAuth(false)} reason="Sign in to unlock more builds" />
 
       {/* Top bar */}
@@ -719,166 +507,15 @@ export default function Generator() {
           </div>
         </motion.section>
 
-        {/* Multi-step progress */}
-        <AnimatePresence>
-          {loading && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="glass-panel p-6 sm:p-8 mb-8"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-primary font-medium">
-                    Building your app
-                  </p>
-                  <h2 className="font-display text-xl font-semibold mt-1">
-                    {(() => { const s = STAGES.find((s) => s.id === stage); return (target === "web" && s?.webLabel) ? s.webLabel : s?.label ?? "Working…"; })()}
-                  </h2>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-                    {elapsed}s
-                  </p>
-                  <p className="text-xs text-muted-foreground">~20–60s typical</p>
-                </div>
-              </div>
-
-              {/* Progress bar */}
-              <div className="h-1.5 w-full rounded-full bg-card/60 overflow-hidden mb-6">
-                <motion.div
-                  className="h-full rounded-full"
-                  style={{ background: "var(--gradient-glow)" }}
-                  initial={{ width: "5%" }}
-                  animate={{
-                    width:
-                      stage === "analyzing"
-                        ? "25%"
-                        : stage === "generating"
-                          ? "70%"
-                          : stage === "bundling"
-                            ? "95%"
-                            : "100%",
-                  }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                />
-              </div>
-
-              {/* Steps */}
-              <ol className="space-y-3">
-                {STAGES.filter((s) => s.id !== "done").map((step, i) => {
-                  const order = ["analyzing", "generating", "bundling"];
-                  const currentIdx = order.indexOf(stage);
-                  const stepIdx = order.indexOf(step.id);
-                  const status: "pending" | "active" | "complete" =
-                    stepIdx < currentIdx
-                      ? "complete"
-                      : stepIdx === currentIdx
-                        ? "active"
-                        : "pending";
-                  const Icon = step.icon;
-                  return (
-                    <li
-                      key={step.id}
-                      className={`flex items-start gap-3 rounded-lg p-3 transition-colors ${
-                        status === "active"
-                          ? "bg-primary/5 border border-primary/30"
-                          : "border border-transparent"
-                      }`}
-                    >
-                      <div
-                        className={`shrink-0 mt-0.5 w-7 h-7 rounded-full flex items-center justify-center ${
-                          status === "complete"
-                            ? "bg-primary/15 text-primary"
-                            : status === "active"
-                              ? "bg-primary text-primary-foreground shadow-[var(--shadow-glow-sm)]"
-                              : "bg-card/60 text-muted-foreground"
-                        }`}
-                      >
-                        {status === "complete" ? (
-                          <Check size={14} strokeWidth={3} />
-                        ) : status === "active" ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Icon size={14} />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={`text-sm font-medium ${
-                            status === "pending" ? "text-muted-foreground" : "text-foreground"
-                          }`}
-                        >
-                          {target === "web" && step.webLabel ? step.webLabel : step.label}
-                        </p>
-                        <p className="text-xs text-muted-foreground/80 mt-0.5">{target === "web" && step.webHint ? step.webHint : step.hint}</p>
-                      </div>
-                      <span className="text-xs font-mono text-muted-foreground/60 mt-1">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              {/* Live agent terminal */}
-              <div className="mt-6 rounded-xl border border-border/60 bg-[hsl(228_20%_4%)] overflow-hidden shadow-[var(--shadow-card)]">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 bg-card/40">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-destructive/70" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
-                    <span className="ml-3 text-xs font-mono text-muted-foreground flex items-center gap-1.5">
-                      <TerminalSquare size={12} /> apex-agent — building
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground/60">
-                    {logs.length} lines
-                  </span>
-                </div>
-                <div
-                  ref={terminalRef}
-                  className="font-mono text-[12px] leading-relaxed p-4 h-64 overflow-auto"
-                >
-                  {logs.map((l) => {
-                    const color =
-                      l.kind === "system"
-                        ? "text-foreground"
-                        : l.kind === "thought"
-                          ? "text-muted-foreground"
-                          : l.kind === "action"
-                            ? "text-primary"
-                            : l.kind === "success"
-                              ? "text-emerald-400"
-                              : l.kind === "warning"
-                                ? "text-amber-400"
-                                : "text-destructive";
-                    const time = new Date(l.ts).toLocaleTimeString([], {
-                      hour12: false,
-                      minute: "2-digit",
-                      second: "2-digit",
-                    });
-                    return (
-                      <div key={l.id} className="flex gap-3">
-                        <span className="text-muted-foreground/40 shrink-0">{time}</span>
-                        <span className={`${color} whitespace-pre-wrap break-words`}>
-                          {l.text}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex gap-2 items-center mt-1 text-primary">
-                    <span>›</span>
-                    <span className="inline-block w-2 h-4 bg-primary/80 animate-pulse" />
-                  </div>
-                </div>
-              </div>
-
-            </motion.div>
-          )}
-        </AnimatePresence>
-
+        {/* Multi-step progress + terminal */}
+        <TerminalPanel
+          stage={stage}
+          target={target}
+          elapsed={elapsed}
+          logs={logs}
+          terminalRef={terminalRef}
+          loading={loading}
+        />
 
         {/* Error */}
         {error && !loading && (
@@ -938,7 +575,7 @@ export default function Generator() {
                 </Button>
               </div>
 
-              {/* ─── Tab Bar ─── */}
+              {/* Tab Bar */}
               <div className="flex gap-1 p-1 bg-card/40 rounded-xl border border-border/40">
                 {([
                   { id: "preview" as const, label: "Preview", icon: Eye },
@@ -960,9 +597,9 @@ export default function Generator() {
                 ))}
               </div>
 
-              {/* ─── Preview Tab ─── */}
+              {/* Preview Tab */}
               {resultTab === "preview" && (
-                <>
+                <ErrorBoundary>
                   {target === "web" ? (
                     <LiveSandbox
                       project={project}
@@ -986,12 +623,12 @@ export default function Generator() {
                       onHtmlChange={(html) => setPreviewHtml(html)}
                     />
                   )}
-                </>
+                </ErrorBoundary>
               )}
 
-              {/* ─── Code Tab ─── */}
+              {/* Code Tab */}
               {resultTab === "code" && (
-                <>
+                <ErrorBoundary>
                   <ZipPreviewCard project={project} onSelect={(f) => { setSelectedFile(f); }} />
                   <div className="grid lg:grid-cols-[280px_1fr] gap-4 min-h-[500px]">
                     <div className="glass-panel p-3 overflow-auto max-h-[600px]">
@@ -1085,10 +722,10 @@ export default function Generator() {
                       )}
                     </div>
                   </div>
-                </>
+                </ErrorBoundary>
               )}
 
-              {/* ─── Details Tab ─── */}
+              {/* Details Tab */}
               {resultTab === "details" && (
                 <>
                   <RefinementChat
@@ -1096,7 +733,7 @@ export default function Generator() {
                     prompt={lastPromptUsed}
                     provider={provider}
                     onProjectUpdate={(updated) => {
-                      setProject(updated);
+                      generation.setProject(updated);
                       setSelectedFile(updated.files[0]?.path ?? null);
                     }}
                   />

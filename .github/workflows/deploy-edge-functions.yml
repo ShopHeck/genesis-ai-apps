@@ -11,6 +11,17 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        function:
+          - generate-ios-app
+          - generate-web-app
+          - generate-app-preview
+          - regenerate-file
+          - evaluate-quality
+          - create-checkout-session
+          - stripe-webhook
     steps:
       - uses: actions/checkout@v4
 
@@ -18,37 +29,9 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy generate-ios-app
+      - name: Deploy ${{ matrix.function }}
         run: |
-          supabase functions deploy generate-ios-app \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Deploy generate-app-preview
-        run: |
-          supabase functions deploy generate-app-preview \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Deploy regenerate-file
-        run: |
-          supabase functions deploy regenerate-file \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Deploy create-checkout-session
-        run: |
-          supabase functions deploy create-checkout-session \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-      - name: Deploy stripe-webhook
-        run: |
-          supabase functions deploy stripe-webhook \
+          supabase functions deploy ${{ matrix.function }} \
             --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

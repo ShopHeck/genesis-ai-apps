@@ -14,13 +14,155 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          id: string
+          email: string
+          full_name: string | null
+          avatar_url: string | null
+          stripe_customer_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id: string
+          email: string
+          full_name?: string | null
+          avatar_url?: string | null
+          stripe_customer_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          email?: string
+          full_name?: string | null
+          avatar_url?: string | null
+          stripe_customer_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          id: string
+          user_id: string
+          stripe_subscription_id: string | null
+          plan: string
+          status: string
+          current_period_end: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          stripe_subscription_id?: string | null
+          plan?: string
+          status?: string
+          current_period_end?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          stripe_subscription_id?: string | null
+          plan?: string
+          status?: string
+          current_period_end?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      generations: {
+        Row: {
+          id: string
+          user_id: string | null
+          prompt: string
+          app_name: string | null
+          bundle_id: string | null
+          summary: string | null
+          files: Json | null
+          files_count: number | null
+          status: string
+          cost_usd: number | null
+          model_used: string | null
+          target: string | null
+          review_score: number | null
+          parent_generation_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          prompt: string
+          app_name?: string | null
+          bundle_id?: string | null
+          summary?: string | null
+          files?: Json | null
+          files_count?: number | null
+          status?: string
+          cost_usd?: number | null
+          model_used?: string | null
+          target?: string | null
+          review_score?: number | null
+          parent_generation_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          prompt?: string
+          app_name?: string | null
+          bundle_id?: string | null
+          summary?: string | null
+          files?: Json | null
+          files_count?: number | null
+          status?: string
+          cost_usd?: number | null
+          model_used?: string | null
+          target?: string | null
+          review_score?: number | null
+          parent_generation_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      anonymous_generations: {
+        Row: {
+          id: string
+          ip_hash: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          ip_hash: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          ip_hash?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_plan: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
+      count_monthly_generations: {
+        Args: { p_user_id: string }
+        Returns: number
+      }
+      count_monthly_anon_generations: {
+        Args: { p_ip_hash: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

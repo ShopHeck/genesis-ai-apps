@@ -3,8 +3,12 @@
 // Architect → Engineer → Reviewer pipeline as the iOS generator.
 // Output: 15-25 files (page components, layout, hooks, Tailwind config, package.json)
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
+import {
+  adminClient, resolveUserId, clientIp, hashIp,
+  checkUserQuota, checkAnonQuota, recordGeneration, recordAnonGeneration, isBurstLimited,
+} from "../_shared/quota.ts";
+import { providerAllowed } from "../_shared/plan-limits.ts";
 import { getSelectedWebPatterns, getScaffoldFiles, WEB_PATTERN_MENU, WEB_COMPONENT_LIBRARY } from "./component-library.ts";
 
 const corsHeaders = {
@@ -302,16 +306,6 @@ function sseEvent(type: string, payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify({ type, ...payload })}\n\n`;
 }
 
-const PLAN_LIMITS: Record<string, number> = {
-  free: 3,
-  pro: 50,
-  studio: Infinity,
-};
-
-function checkQuota(plan: string, usage: number): boolean {
-  return usage < (PLAN_LIMITS[plan] ?? PLAN_LIMITS.free);
-}
-
 function toAITool(t: { name: string; description: string; parameters: Record<string, unknown> }): AITool {
   return t;
 }
@@ -413,6 +407,15 @@ async function callWithFallback(
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Per-IP burst limiter (cheap first line of defense against abuse loops).
+  const ip = clientIp(req);
+  if (isBurstLimited(ip)) {
+    return new Response(
+      JSON.stringify({ error: "Too many requests. Please wait a minute before trying again." }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } },
+    );
+  }
+
   const { prompt, provider: providerHint } = await req.json();
   if (!prompt || typeof prompt !== "string") {
     return new Response(JSON.stringify({ error: "Missing prompt" }), {
@@ -422,6 +425,43 @@ Deno.serve(async (req: Request) => {
   }
 
   const provider: Provider = (providerHint === "anthropic" || providerHint === "opencode") ? providerHint : "gemini";
+
+  // Resolve user + enforce quota. Single source of truth in _shared/quota.ts:
+  // authenticated users are metered by plan; anonymous users get a durable,
+  // server-side per-IP monthly trial (not the bypassable localStorage counter).
+  const supabase = adminClient();
+  const userId = await resolveUserId(req);
+  let userPlan = "free";
+  let ipHash: string | null = null;
+
+  if (userId) {
+    const quota = await checkUserQuota(supabase, userId);
+    userPlan = quota.plan;
+    if (!quota.allowed) {
+      return new Response(
+        JSON.stringify({ error: `Monthly limit reached (${quota.used}/${quota.limit} builds). Upgrade your plan at /pricing.` }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  } else {
+    ipHash = await hashIp(ip);
+    const anon = await checkAnonQuota(supabase, ipHash);
+    if (!anon.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Free trial used. Sign in to get more builds." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  }
+
+  // Premium providers (Claude / Opencode) are a Studio-tier capability.
+  if (!providerAllowed(provider, userPlan)) {
+    return new Response(
+      JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
   const apiKey = getApiKey(provider);
   if (!apiKey) {
     return new Response(JSON.stringify({ error: `${provider} API key not configured.` }), {
@@ -430,43 +470,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Check auth & quota
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const userClient = createClient(supabaseUrl, supabaseServiceKey);
-
-  let userId: string | null = null;
-  let userPlan = "free";
-  let monthlyUsage = 0;
-
-  if (authHeader.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    try {
-      const { data: { user } } = await userClient.auth.getUser(token);
-      if (user) {
-        userId = user.id;
-        const { data: profile } = await userClient
-          .from("profiles")
-          .select("plan, monthly_usage")
-          .eq("id", userId)
-          .single();
-        if (profile) {
-          userPlan = profile.plan ?? "free";
-          monthlyUsage = profile.monthly_usage ?? 0;
-        }
-      }
-    } catch { /* anonymous */ }
-  }
-
-  if (userId && !checkQuota(userPlan, monthlyUsage)) {
-    return new Response(JSON.stringify({ error: "Monthly generation limit reached." }), {
-      status: 429,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
   const models = DEFAULT_MODELS[provider];
+  const modelUsed = models.engineer;
+  const costEstimate = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
   const tag = `[${provider}]`;
 
   const stream = new ReadableStream({
@@ -561,11 +567,24 @@ Deno.serve(async (req: Request) => {
         enqueue("result", { project: resultProject });
         enqueue("progress", { phase: "done", message: `${tag} web app ready for download`, percent: 100 });
 
-        // Increment usage
+        // Persist usage — this row is what count_monthly_generations meters on,
+        // so it both records history and enforces the next request's quota.
         if (userId) {
-          try {
-            await userClient.rpc("increment_monthly_usage", { user_id: userId });
-          } catch { /* non-fatal */ }
+          await recordGeneration(supabase, {
+            user_id: userId,
+            prompt,
+            app_name: project.appName,
+            bundle_id: (resultProject as { bundleId?: string }).bundleId,
+            summary: project.summary,
+            files: project.files,
+            files_count: project.files.length,
+            status: "success",
+            model_used: modelUsed,
+            cost_usd: costEstimate,
+            target: "web",
+          });
+        } else if (ipHash) {
+          await recordAnonGeneration(supabase, ipHash);
         }
 
         // Deferred review + quality-driven auto-regeneration
@@ -674,6 +693,11 @@ Deno.serve(async (req: Request) => {
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
       } catch (e) {
         const msg = e instanceof AIError ? e.message : (e instanceof Error ? e.message : "Generation failed");
+        if (userId) {
+          await recordGeneration(supabase, {
+            user_id: userId, prompt, status: "failed", model_used: modelUsed, target: "web",
+          });
+        }
         enqueue("error", { message: msg });
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
       } finally {

@@ -24,6 +24,8 @@ export type Project = {
   compliance?: ComplianceReport;
 };
 
+export type ShopifyArchetype = "embedded_admin" | "admin_extension";
+
 export type PromptTemplate = {
   label: string;
   category: string;
@@ -33,6 +35,7 @@ export type PromptTemplate = {
   accent: string;
   emoji: string;
   prompt: string;
+  archetype?: ShopifyArchetype;
 };
 
 export type Stage = "idle" | "analyzing" | "generating" | "bundling" | "done" | "error";

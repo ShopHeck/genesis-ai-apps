@@ -1,0 +1,63 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ApexBuild feature graphic">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1600" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/><stop offset="0.5" stop-color="#5B50E0"/><stop offset="1" stop-color="#A06FD6"/>
+    </linearGradient>
+    <radialGradient id="bA" cx="0.5" cy="0.5" r="0.5"><stop stop-color="#5B50E0" stop-opacity="0.5"/><stop offset="1" stop-color="#5B50E0" stop-opacity="0"/></radialGradient>
+    <radialGradient id="bB" cx="0.5" cy="0.5" r="0.5"><stop stop-color="#22D3EE" stop-opacity="0.4"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/></radialGradient>
+    <linearGradient id="gt" x1="120" y1="0" x2="1000" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#22D3EE"/><stop offset="1" stop-color="#A06FD6"/></linearGradient>
+  </defs>
+
+  <rect width="1600" height="900" fill="#0D0E12"/>
+  <circle cx="1240" cy="240" r="520" fill="url(#bA)"/>
+  <circle cx="260" cy="820" r="520" fill="url(#bB)"/>
+
+  <!-- left: message -->
+  <g transform="translate(120,150)">
+    <g>
+      <rect width="60" height="60" rx="16" fill="#15171D"/>
+      <rect x="0.7" y="0.7" width="58.6" height="58.6" rx="15.3" stroke="#ffffff" stroke-opacity="0.1"/>
+      <path fill="url(#g)" transform="scale(0.117)" d="M256 92 C 270 184, 328 242, 420 256 C 328 270, 270 328, 256 420 C 242 328, 184 270, 92 256 C 184 242, 242 184, 256 92 Z"/>
+      <text x="78" y="40" font-family="Space Grotesk, system-ui, sans-serif" font-size="32" font-weight="700" fill="#E6EAF0" letter-spacing="-0.5">ApexBuild</text>
+    </g>
+
+    <text x="0" y="190" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="92" letter-spacing="-3" fill="#E6EAF0">From a sentence</text>
+    <text x="0" y="290" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="92" letter-spacing="-3"><tspan fill="url(#gt)">to a shippable app.</tspan></text>
+
+    <text x="0" y="372" font-family="Inter, system-ui, sans-serif" font-size="30" fill="#9AA3B0">The AI app builder made for Shopify merchants and partners.</text>
+    <text x="0" y="414" font-family="Inter, system-ui, sans-serif" font-size="30" fill="#9AA3B0">Installable. Compliant. Grounded in your real store.</text>
+
+    <!-- CTA -->
+    <g transform="translate(0,470)">
+      <rect width="280" height="64" rx="32" fill="url(#g)"/>
+      <text x="140" y="41" text-anchor="middle" font-family="Space Grotesk, system-ui, sans-serif" font-size="24" font-weight="700" fill="#0D0E12">Start building free</text>
+    </g>
+  </g>
+
+  <!-- right: faux generator card -->
+  <g transform="translate(900,210)">
+    <rect width="560" height="480" rx="24" fill="#13151B" stroke="#ffffff" stroke-opacity="0.08"/>
+    <!-- prompt -->
+    <rect x="28" y="28" width="504" height="92" rx="14" fill="#0F1116" stroke="#ffffff" stroke-opacity="0.06"/>
+    <text x="48" y="64" font-family="Inter, system-ui, sans-serif" font-size="19" fill="#C7CDD6">"A low-stock alert app with per-product</text>
+    <text x="48" y="92" font-family="Inter, system-ui, sans-serif" font-size="19" fill="#C7CDD6">reorder points and a daily digest."</text>
+
+    <!-- terminal lines -->
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16">
+      <text x="48" y="166" fill="#22D3EE">› architect — minimizing scopes…</text>
+      <text x="48" y="198" fill="#7E8794">[plan] 3 screens · read_products, read_inventory</text>
+      <text x="48" y="230" fill="#A06FD6">› engineer — Polaris routes + Admin GraphQL…</text>
+      <text x="48" y="262" fill="#7E8794">app/routes/app._index.tsx</text>
+      <text x="48" y="294" fill="#7E8794">prisma/schema.prisma · webhooks wired</text>
+      <text x="48" y="326" fill="#5B50E0">› reviewer — Built for Shopify: 94/100 ✓</text>
+    </g>
+
+    <!-- result chip -->
+    <g transform="translate(28,360)">
+      <rect width="504" height="88" rx="14" fill="#0F1116" stroke="#22D3EE" stroke-opacity="0.4"/>
+      <circle cx="36" cy="44" r="10" fill="#22D3EE"/>
+      <text x="62" y="40" font-family="Space Grotesk, system-ui, sans-serif" font-size="20" font-weight="700" fill="#E6EAF0">Low Stock Alerts — ready to install</text>
+      <text x="62" y="66" font-family="Inter, system-ui, sans-serif" font-size="16" fill="#9AA3B0">18 files · shopify app dev</text>
+    </g>
+  </g>
+</svg>

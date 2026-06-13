@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         function:
-          - generate-ios-app
+          - generate-shopify-app
           - generate-web-app
           - generate-app-preview
           - regenerate-file

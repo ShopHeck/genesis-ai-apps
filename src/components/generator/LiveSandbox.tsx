@@ -398,7 +398,7 @@ export function LiveSandbox({
   onPreviewHtml,
 }: {
   project: Project;
-  target: "ios" | "web";
+  target: "shopify" | "web";
   onPreviewHtml?: (html: string) => void;
 }) {
   const [status, setStatus] = useState<SandboxStatus>("idle");

@@ -20,9 +20,12 @@ Pinned target: Admin API **2026-04** (see `supabase/functions/_shared/shopify.ts
   iOS removal is deferred to Phase 1 (it is removed as part of the generator
   retarget, to avoid a broken intermediate state).
 
-- **Phase 1 — Generator MVP.** `generate-shopify-app` produces an installable
-  embedded admin app from the React Router template; retarget the generator UI;
-  remove the iOS target. Validation wired to GraphQL validation.
+- **Phase 1 — Generator MVP (in progress).** `generate-shopify-app` produces an
+  embedded admin app from the React Router template (Architect → Engineer →
+  Reviewer, scaffold injection, Built-for-Shopify review, shared metering). The
+  generator UI is retargeted to Shopify + web and the iOS target is removed.
+  Remaining: validate generated apps against `shopify app dev` end-to-end and
+  wire GraphQL operation validation into the pipeline (rolls into Phase 2).
 
 - **Phase 2 — Real preview + store grounding.** Live embedded preview against a
   connected dev store; generation grounded in the merchant's real products and

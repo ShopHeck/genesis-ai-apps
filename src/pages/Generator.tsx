@@ -9,7 +9,7 @@ import {
   Download,
   FileCode2,
   Folder,
-  Apple,
+  Store,
   Globe,
   Wand2,
   AlertTriangle,
@@ -21,6 +21,7 @@ import {
   Eye,
   Code2,
   Layers,
+  Terminal,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { downloadZip } from "@/lib/download";
@@ -33,35 +34,29 @@ import { useGeneration } from "@/hooks/useGeneration";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AuthModal from "@/components/AuthModal";
 
-import type { Project } from "@/components/generator/types";
 import { buildTree, FileTreeView } from "@/components/generator/FileTree";
 import { ZipPreviewCard } from "@/components/generator/ZipPreviewCard";
-import { validateProject, ValidationPanel } from "@/components/generator/ValidationPanel";
-import { AppPreview } from "@/components/generator/AppPreview";
-import { PreviewPlayground } from "@/components/generator/PreviewPlayground";
 import { RefinementChat } from "@/components/generator/RefinementChat";
-import { XcodeExportButton } from "@/components/generator/XcodeExport";
 import { QualityScore } from "@/components/generator/QualityScore";
 import { LiveSandbox } from "@/components/generator/LiveSandbox";
 import { TerminalPanel } from "@/components/generator/TerminalPanel";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
 
+type Target = "shopify" | "web";
+
 export default function Generator() {
   const { user, plan, monthlyUsage } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [prompt, setPrompt] = useState("");
-  const [target, setTarget] = useState<"ios" | "web">("ios");
+  const [target, setTarget] = useState<Target>("shopify");
   const [parentGenerationId, setParentGenerationId] = useState<string | null>(null);
   const [remixMode, setRemixMode] = useState(false);
   const [provider, setProvider] = useState<"gemini" | "anthropic" | "opencode">("gemini");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [editedFiles, setEditedFiles] = useState<Map<string, string>>(new Map());
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [regeneratingFile, setRegeneratingFile] = useState(false);
-  const [showPlayground, setShowPlayground] = useState(false);
   const [resultTab, setResultTab] = useState<"preview" | "code" | "details">("preview");
 
   const generation = useGeneration();
@@ -74,10 +69,10 @@ export default function Generator() {
     const regenerateId = searchParams.get("regenerate");
     const remixId = searchParams.get("remix");
     const prefillPrompt = searchParams.get("prompt");
-    const prefillTarget = searchParams.get("target") as "ios" | "web" | null;
+    const prefillTarget = searchParams.get("target") as Target | null;
 
     if (prefillPrompt) setPrompt(decodeURIComponent(prefillPrompt));
-    if (prefillTarget === "ios" || prefillTarget === "web") setTarget(prefillTarget);
+    if (prefillTarget === "shopify" || prefillTarget === "web") setTarget(prefillTarget);
 
     if (regenerateId) {
       setParentGenerationId(regenerateId);
@@ -106,7 +101,6 @@ export default function Generator() {
     setSelectedFile(null);
     setEditedFiles(new Map());
     setPreviewHtml(null);
-    setPreviewError(null);
     await generation.generate({
       prompt,
       target,
@@ -152,65 +146,16 @@ export default function Generator() {
     }
   };
 
-  const validation = project && target === "ios" ? validateProject(project) : null;
-
   const handleDownload = async () => {
     if (!project) return;
-    if (validation && validation.errors.length > 0) {
-      toast.error("Cannot download: project has validation errors");
-      return;
-    }
     const files = project.files.map((f) => ({ path: f.path, content: editedFiles.get(f.path) ?? f.content }));
     await downloadZip(project.appName, files);
     toast.success("Project downloaded");
   };
 
-  const generatePreview = async () => {
-    if (!project) return;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    try {
-      const fileManifest = project.files
-        .map((f) => f.path)
-        .join("\n");
-
-      const keyFiles = project.files
-        .filter((f) =>
-          f.path.endsWith("Theme.swift") ||
-          f.path.endsWith("ContentView.swift") ||
-          f.path.match(/Features\/.*View\.swift$/) ||
-          f.path.match(/Models?\/.*\.swift$/) ||
-          f.path.match(/Store\.swift$/)
-        )
-        .slice(0, 8)
-        .map((f) => `// === ${f.path} ===\n${f.content.slice(0, 2000)}`)
-        .join("\n\n");
-
-      const { data, error: fnErr } = await supabase.functions.invoke("generate-app-preview", {
-        body: {
-          prompt: lastPromptUsed || prompt,
-          appName: project.appName,
-          summary: project.summary,
-          plan: (project as Project & { plan?: unknown }).plan ?? null,
-          fileManifest,
-          sourceCode: keyFiles || undefined,
-        },
-      });
-      if (fnErr) throw new Error(fnErr.message);
-      if (data?.error) throw new Error(data.error);
-      if (!data?.html) throw new Error("Empty preview returned");
-      setPreviewHtml(data.html);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Preview failed";
-      setPreviewError(msg);
-      toast.error(msg);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
   const tree = project ? buildTree(project.files) : null;
   const currentFile = project?.files.find((f) => f.path === selectedFile);
+  const isShopify = target === "shopify";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -235,13 +180,13 @@ export default function Generator() {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
-              <Apple size={14} />
-              <span>Xcode 16+ · iOS 18 · Swift 6</span>
+              <Store size={14} />
+              <span>{isShopify ? "Shopify · React Router · Polaris" : "React · Tailwind · Vite"}</span>
             </div>
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground hidden sm:inline">
-                  {monthlyUsage}/{planLimit === Infinity ? "\u221E" : planLimit} builds
+                  {monthlyUsage}/{planLimit === Infinity ? "∞" : planLimit} builds
                 </span>
                 <Link to="/dashboard">
                   <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground h-7 px-2">
@@ -276,12 +221,12 @@ export default function Generator() {
             Describe your app
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight mb-2 text-balance">
-            From idea to <span className="gradient-text">{target === "web" ? "web app" : "Xcode project"}</span> in seconds
+            From idea to <span className="gradient-text">{isShopify ? "Shopify app" : "web app"}</span> in seconds
           </h1>
           <p className="text-muted-foreground mb-6 max-w-2xl">
-            {target === "web"
-              ? "Generates a production-grade React + Tailwind CSS app with TypeScript, responsive design, animations, and accessibility built in."
-              : "Generates a production-grade SwiftUI app following Apple's 2026 best practices — Swift 6 concurrency, @Observable, SwiftData, NavigationStack, and accessibility built in."
+            {isShopify
+              ? "Generates an installable embedded Shopify admin app on the official React Router template — App Bridge, Polaris UI, Admin GraphQL, webhooks, and Prisma session storage wired in."
+              : "Generates a production-grade React + Tailwind CSS app with TypeScript, responsive design, animations, and accessibility built in."
             }
           </p>
 
@@ -289,16 +234,16 @@ export default function Generator() {
           <div className="flex items-center gap-2 mb-5">
             <div className="flex items-center gap-1 bg-card/40 rounded-lg p-1 border border-border/40">
               <button
-                onClick={() => setTarget("ios")}
+                onClick={() => setTarget("shopify")}
                 disabled={loading}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  target === "ios"
+                  isShopify
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Apple size={13} />
-                iOS App
+                <Store size={13} />
+                Shopify App
               </button>
               <button
                 onClick={() => setTarget("web")}
@@ -314,7 +259,7 @@ export default function Generator() {
               </button>
             </div>
             <span className="text-[10px] text-muted-foreground/60">
-              {target === "web" ? "React + Tailwind + Vite" : "SwiftUI + Swift 6 + Xcode 16"}
+              {isShopify ? "React Router + Polaris + Admin API" : "React + Tailwind + Vite"}
             </span>
           </div>
 
@@ -348,7 +293,9 @@ export default function Generator() {
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="A meditation app with guided breathing sessions, daily streaks, and HealthKit integration..."
+            placeholder={isShopify
+              ? "A low-stock alert app that flags products under a threshold and lets merchants set per-product reorder points..."
+              : "A meditation app with guided breathing sessions, daily streaks, and offline support..."}
             rows={4}
             className="bg-background/60 border-border/60 resize-none text-base focus-visible:ring-primary"
             disabled={loading}
@@ -548,27 +495,25 @@ export default function Generator() {
               <div className="glass-panel p-6 flex items-start justify-between gap-6 flex-wrap">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-xs text-primary font-medium mb-1">
-                    {target === "web" ? <Globe size={12} /> : <Apple size={12} />}
-                    {target === "web" ? "READY TO DEPLOY" : "READY FOR XCODE"}
+                    {isShopify ? <Store size={12} /> : <Globe size={12} />}
+                    {isShopify ? "READY TO INSTALL" : "READY TO DEPLOY"}
                   </div>
                   <h2 className="font-display text-2xl font-bold">{project.appName}</h2>
-                  {target === "ios" && <p className="text-xs text-muted-foreground font-mono mt-1">{project.bundleId}</p>}
                   <p className="text-sm text-muted-foreground mt-3 max-w-2xl">{project.summary}</p>
                   <p className="text-xs text-muted-foreground/70 mt-2">
                     {project.files.length} files generated
-                    {target === "web" && project.files.some(f => f.path.includes("server/")) && (
-                      <span className="ml-2 text-primary/70">· full-stack with API</span>
+                    {isShopify && project.files.some(f => f.path.includes("prisma/")) && (
+                      <span className="ml-2 text-primary/70">· Prisma data layer</span>
                     )}
-                    {target === "web" && project.files.some(f => f.path.includes("auth.ts")) && (
-                      <span className="ml-1 text-primary/70">· auth included</span>
+                    {isShopify && project.files.some(f => f.path.includes("webhooks")) && (
+                      <span className="ml-1 text-primary/70">· webhooks wired</span>
                     )}
                   </p>
                 </div>
                 <Button
                   onClick={handleDownload}
                   size="lg"
-                  disabled={!!validation && validation.errors.length > 0}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)] disabled:opacity-50"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)]"
                 >
                   <Download size={16} />
                   Download .zip
@@ -578,7 +523,7 @@ export default function Generator() {
               {/* Tab Bar */}
               <div className="flex gap-1 p-1 bg-card/40 rounded-xl border border-border/40">
                 {([
-                  { id: "preview" as const, label: "Preview", icon: Eye },
+                  { id: "preview" as const, label: isShopify ? "Install" : "Preview", icon: Eye },
                   { id: "code" as const, label: "Code", icon: Code2 },
                   { id: "details" as const, label: "Details", icon: Layers },
                 ]).map((tab) => (
@@ -597,7 +542,7 @@ export default function Generator() {
                 ))}
               </div>
 
-              {/* Preview Tab */}
+              {/* Preview / Install Tab */}
               {resultTab === "preview" && (
                 <ErrorBoundary>
                   {target === "web" ? (
@@ -607,21 +552,7 @@ export default function Generator() {
                       onPreviewHtml={(html) => setPreviewHtml(html)}
                     />
                   ) : (
-                    <AppPreview
-                      html={previewHtml}
-                      loading={previewLoading}
-                      error={previewError}
-                      onRegenerate={generatePreview}
-                      appName={project.appName}
-                      onOpenPlayground={() => setShowPlayground(true)}
-                    />
-                  )}
-                  {showPlayground && previewHtml && (
-                    <PreviewPlayground
-                      html={previewHtml}
-                      appName={project.appName}
-                      onHtmlChange={(html) => setPreviewHtml(html)}
-                    />
+                    <ShopifyInstallPanel appName={project.appName} />
                   )}
                 </ErrorBoundary>
               )}
@@ -676,13 +607,13 @@ export default function Generator() {
                           height="560px"
                           theme="vs-dark"
                           language={
-                            selectedFile?.endsWith(".swift") ? "swift" :
                             selectedFile?.endsWith(".tsx") || selectedFile?.endsWith(".jsx") ? "typescript" :
                             selectedFile?.endsWith(".ts") || selectedFile?.endsWith(".js") ? "typescript" :
                             selectedFile?.endsWith(".css") ? "css" :
+                            selectedFile?.endsWith(".prisma") ? "prisma" :
                             selectedFile?.endsWith(".sql") ? "sql" :
                             selectedFile?.endsWith(".html") ? "html" :
-                            selectedFile?.endsWith(".yml") || selectedFile?.endsWith(".yaml") ? "yaml" :
+                            selectedFile?.endsWith(".toml") ? "ini" :
                             selectedFile?.endsWith(".json") ? "json" :
                             selectedFile?.endsWith(".md") ? "markdown" :
                             selectedFile?.endsWith(".gitignore") ? "ini" : "plaintext"
@@ -738,20 +669,55 @@ export default function Generator() {
                     }}
                   />
                   <QualityScore project={project} previewHtml={previewHtml} />
-                  {validation && <ValidationPanel result={validation} onSelect={(f) => { setSelectedFile(f); setResultTab("code"); }} />}
-                  {target === "ios" && (
-                    <XcodeExportButton
-                      project={project}
-                      editedFiles={editedFiles}
-                      validation={validation}
-                    />
-                  )}
                 </>
               )}
             </motion.section>
           )}
         </AnimatePresence>
       </main>
+    </div>
+  );
+}
+
+// Install instructions for a generated Shopify app. A real in-admin embedded
+// preview against a connected dev store lands in Phase 2.
+function ShopifyInstallPanel({ appName }: { appName: string }) {
+  const steps = [
+    { cmd: "npm install", desc: "Install dependencies" },
+    { cmd: "npm run setup", desc: "Generate the Prisma client + run migrations" },
+    { cmd: "shopify app dev", desc: "Install on your dev store and open the embedded app" },
+  ];
+  return (
+    <div className="glass-panel p-6 space-y-5">
+      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <Store size={16} className="text-primary" />
+        Install <span className="gradient-text">{appName}</span> on a dev store
+      </div>
+      <p className="text-sm text-muted-foreground max-w-2xl">
+        This is a complete Shopify app on the official React Router template. Download the
+        .zip, then from the project root:
+      </p>
+      <ol className="space-y-2">
+        {steps.map((s, i) => (
+          <li key={s.cmd} className="flex items-start gap-3">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-primary/15 text-primary text-[11px] flex items-center justify-center mt-0.5">{i + 1}</span>
+            <div className="min-w-0">
+              <code className="text-xs font-mono bg-background/60 border border-border/50 rounded px-2 py-1 inline-flex items-center gap-1.5">
+                <Terminal size={11} className="text-muted-foreground" />
+                {s.cmd}
+              </code>
+              <p className="text-xs text-muted-foreground mt-1">{s.desc}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="text-xs text-muted-foreground/70 border-t border-border/40 pt-4">
+        Requires the{" "}
+        <a href="https://shopify.dev/docs/api/shopify-cli" target="_blank" rel="noreferrer" className="text-primary underline">
+          Shopify CLI
+        </a>{" "}
+        and a Partner account. A live in-admin preview against your connected store is coming soon.
+      </div>
     </div>
   );
 }

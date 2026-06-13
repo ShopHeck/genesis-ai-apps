@@ -1,6 +1,6 @@
 # ApexBuild
 
-AI-powered iOS app generator. Describe your idea in natural language and get a production-grade SwiftUI project (Swift 6, @Observable, SwiftData, NavigationStack) ready to open in Xcode.
+AI-powered **Shopify app & merchant-tool generator**. Describe a merchant idea in natural language and get an installable, Built-for-Shopify-minded embedded admin app on the official React Router template (App Bridge, Polaris, Admin GraphQL, webhooks, Prisma session storage) — ready to run with `shopify app dev`. A React + Tailwind web-app target is also supported. See `ROADMAP.md` for the product direction.
 
 ## Stack
 
@@ -24,11 +24,14 @@ Supabase Edge Functions live in `supabase/functions/`:
 
 | Function | Purpose |
 |----------|---------|
-| `generate-ios-app` | 5-phase AI pipeline: Architect → Designer → Engineer → Reviewer → Refiner |
-| `generate-app-preview` | Interactive HTML prototype from design spec |
+| `generate-shopify-app` | Shopify pipeline: Architect → Engineer → Reviewer on the React Router template |
+| `generate-web-app` | React + Tailwind web-app pipeline |
 | `regenerate-file` | Re-generate a single file (Pro+) |
+| `evaluate-quality` | Standalone quality scoring |
 | `create-checkout-session` | Stripe checkout for plan upgrades |
 | `stripe-webhook` | Handles subscription lifecycle events |
+
+Shared edge-function logic lives in `supabase/functions/_shared/`: `ai.ts` (multi-provider client), `quota.ts` + `plan-limits.ts` (unified metering/anti-abuse), and `shopify.ts` (pinned Admin API version + constants).
 
 Deploy with the Supabase CLI:
 

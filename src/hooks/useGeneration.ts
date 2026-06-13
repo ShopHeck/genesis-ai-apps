@@ -17,7 +17,7 @@ export interface GenerationState {
 export interface GenerationActions {
   generate: (opts: {
     prompt: string;
-    target: "ios" | "web";
+    target: "shopify" | "web";
     provider: "gemini" | "anthropic" | "opencode";
     user: { id: string } | null;
     monthlyUsage: number;
@@ -94,7 +94,7 @@ export function useGeneration(): GenerationState & GenerationActions {
 
   const generate = useCallback(async (opts: {
     prompt: string;
-    target: "ios" | "web";
+    target: "shopify" | "web";
     provider: "gemini" | "anthropic" | "opencode";
     user: { id: string } | null;
     monthlyUsage: number;
@@ -137,7 +137,7 @@ export function useGeneration(): GenerationState & GenerationActions {
       const { data: { session } } = await supabase.auth.getSession();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const fnUrl = `${supabaseUrl}/functions/v1/${target === "web" ? "generate-web-app" : "generate-ios-app"}`;
+      const fnUrl = `${supabaseUrl}/functions/v1/${target === "web" ? "generate-web-app" : "generate-shopify-app"}`;
 
       const resp = await fetch(fnUrl, {
         method: "POST",

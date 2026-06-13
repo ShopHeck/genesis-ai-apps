@@ -16,6 +16,7 @@ jobs:
       matrix:
         function:
           - generate-shopify-app
+          - shopify-oauth
           - generate-web-app
           - generate-app-preview
           - regenerate-file

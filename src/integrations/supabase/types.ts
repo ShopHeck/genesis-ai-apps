@@ -148,7 +148,15 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      shopify_connection_status: {
+        Row: {
+          user_id: string | null
+          shop_domain: string | null
+          scope: string | null
+          installed_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_user_plan: {

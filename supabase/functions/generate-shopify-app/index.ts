@@ -19,6 +19,7 @@ import {
 import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operations.ts";
 import { runCompliance, complianceSummary } from "./compliance.ts";
 import { buildSubmissionKit } from "./submission-kit.ts";
+import { fetchStoreContext, storeContextPrompt } from "../_shared/shopify-admin.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -370,11 +371,30 @@ Deno.serve(async (req: Request) => {
         controller.enqueue(new TextEncoder().encode(sseEvent(type, payload)));
 
       try {
+        // Ground in the user's connected store, if any.
+        let storeContext = "";
+        if (userId) {
+          const { data: conn } = await supabase
+            .from("shopify_connections")
+            .select("shop_domain, access_token")
+            .eq("user_id", userId)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (conn?.shop_domain && conn?.access_token) {
+            const ctx = await fetchStoreContext(conn.shop_domain as string, conn.access_token as string);
+            if (ctx) {
+              storeContext = storeContextPrompt(ctx);
+              enqueue("progress", { phase: "analyzing", message: `${tag} grounded in ${ctx.shopName} · ${ctx.productCount} products`, percent: 4 });
+            }
+          }
+        }
+
         // Phase 1: Architect
         enqueue("progress", { phase: "analyzing", message: `${tag} architect — designing Shopify app…`, percent: 5 });
         const architect = await callWithFallback({
           provider, apiKey, model: models.architect, system: ARCHITECT_PROMPT,
-          userMessage: `Design a Shopify embedded admin app for this merchant idea:\n\n"${prompt}"`,
+          userMessage: `Design a Shopify embedded admin app for this merchant idea:\n\n"${prompt}"${storeContext ? `\n\n${storeContext}` : ""}`,
           tool: TOOL_PLAN, maxTokens: 8192, timeoutMs: 120_000, enqueue,
         });
         const plan = architect.toolArgs;
@@ -406,7 +426,7 @@ Deno.serve(async (req: Request) => {
 
         // Phase 2: Engineer
         const patternGuide = getSelectedPolarisPatterns((plan.polarisPatterns as string[]) ?? []);
-        const engineerMsg = `Merchant idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\n${patternGuide}\n\n${validatedOps.snippets}\n\nAdmin API version: ${ADMIN_API_VERSION}.\n\nBuild the merchant-specific files. Implement every screen in the plan. Scaffold files are pre-injected — do NOT regenerate them.`;
+        const engineerMsg = `Merchant idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\n${patternGuide}\n\n${validatedOps.snippets}${storeContext ? `\n\n${storeContext}` : ""}\n\nAdmin API version: ${ADMIN_API_VERSION}.\n\nBuild the merchant-specific files. Implement every screen in the plan. Scaffold files are pre-injected — do NOT regenerate them.`;
         const engineer = await callWithFallback({
           provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT,
           userMessage: engineerMsg, tool: TOOL_PROJECT, maxTokens: 65536, timeoutMs: 300_000, enqueue,

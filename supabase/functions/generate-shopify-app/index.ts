@@ -21,6 +21,8 @@ import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operatio
 import { runCompliance, complianceSummary } from "./compliance.ts";
 import { buildSubmissionKit } from "./submission-kit.ts";
 import { fetchStoreContext, storeContextPrompt } from "../_shared/shopify-admin.ts";
+import { createLogger } from "../_shared/log.ts";
+import { CostGuard, CostLimitError, defaultMaxCost, type Role } from "../_shared/cost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -290,9 +292,12 @@ function validateProject(project: ShopifyProject): { errors: string[]; warnings:
 
 async function callWithFallback(opts: {
   provider: Provider; apiKey: string; model: string; system: string; userMessage: string;
+  role: Role; costGuard?: CostGuard;
   tool?: AITool; maxTokens?: number; timeoutMs?: number;
   enqueue?: (type: string, payload: Record<string, unknown>) => void;
 }): Promise<{ text?: string; toolArgs?: Record<string, unknown> }> {
+  // Charge the cost ceiling before spending on the call (throws CostLimitError).
+  opts.costGuard?.charge(opts.provider, opts.role);
   const onRetry: AICallOptions["onRetry"] = (attempt, max, delay, err) => {
     opts.enqueue?.("progress", { phase: "retrying", message: `Retry ${attempt}/${max} after ${Math.round(delay / 1000)}s — ${err.message.slice(0, 80)}`, percent: -1 });
   };
@@ -376,6 +381,10 @@ Deno.serve(async (req: Request) => {
   const modelUsed = models.engineer;
   const costEstimate = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
   const tag = `[${provider}]`;
+  const log = createLogger("generate-shopify-app");
+  const costGuard = new CostGuard(defaultMaxCost());
+  const startedAt = Date.now();
+  log.info("generation.start", { provider, userId: userId ?? null, anon: !userId, promptChars: prompt.length });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -405,7 +414,7 @@ Deno.serve(async (req: Request) => {
         // Phase 1: Architect
         enqueue("progress", { phase: "analyzing", message: `${tag} architect — designing Shopify app…`, percent: 5 });
         const architect = await callWithFallback({
-          provider, apiKey, model: models.architect, system: ARCHITECT_PROMPT,
+          provider, apiKey, model: models.architect, system: ARCHITECT_PROMPT, role: "architect", costGuard,
           userMessage: `Design a Shopify embedded admin app for this merchant idea:\n\n"${prompt}"${storeContext ? `\n\n${storeContext}` : ""}`,
           tool: TOOL_PLAN, maxTokens: 8192, timeoutMs: 120_000, enqueue,
         });
@@ -448,7 +457,7 @@ Deno.serve(async (req: Request) => {
         const patternGuide = getSelectedPolarisPatterns((plan.polarisPatterns as string[]) ?? []);
         const engineerMsg = `Merchant idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\n${patternGuide}\n\n${validatedOps.snippets}${storeContext ? `\n\n${storeContext}` : ""}\n\nAdmin API version: ${ADMIN_API_VERSION}.\n\nBuild the merchant-specific files. Implement every screen in the plan. Scaffold files are pre-injected — do NOT regenerate them.`;
         const engineer = await callWithFallback({
-          provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT,
+          provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT, role: "engineer", costGuard,
           userMessage: engineerMsg, tool: TOOL_PROJECT, maxTokens: 65536, timeoutMs: 300_000, enqueue,
         });
         const raw = engineer.toolArgs as unknown as ShopifyProject | undefined;
@@ -489,6 +498,11 @@ Deno.serve(async (req: Request) => {
         };
         enqueue("result", { project: resultProject });
         enqueue("progress", { phase: "done", message: `${tag} Shopify app ready — run \`shopify app dev\` to install`, percent: 100 });
+        log.info("generation.done", {
+          appName: project.appName, files: project.files.length,
+          complianceScore: compliance.score, estCostUsd: costGuard.total,
+          ms: Date.now() - startedAt,
+        });
 
         // Persist usage (meters next request's quota) / record anon trial.
         if (userId) {
@@ -505,7 +519,7 @@ Deno.serve(async (req: Request) => {
         try {
           const manifest = project.files.slice(0, 12).map((f) => `// === ${f.path} ===\n${f.content.slice(0, 1500)}`).join("\n\n");
           const reviewer = await callWithFallback({
-            provider, apiKey, model: models.reviewer, system: REVIEWER_PROMPT,
+            provider, apiKey, model: models.reviewer, system: REVIEWER_PROMPT, role: "reviewer", costGuard,
             userMessage: `Review this Shopify embedded app:\n\n${manifest}`,
             tool: TOOL_REVIEW, maxTokens: 4000, timeoutMs: 60_000, enqueue,
           });
@@ -515,7 +529,7 @@ Deno.serve(async (req: Request) => {
             if (review.score < 70) {
               const topIssues = (review.issues ?? []).slice(0, 4).map((i) => `• [${i.file ?? "general"}] ${i.message ?? ""}${i.fix ? `\n  Fix: ${i.fix}` : ""}`).join("\n");
               const refiner = await callWithFallback({
-                provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT,
+                provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT, role: "engineer", costGuard,
                 userMessage: `The app scored ${review.score}/100. Fix these issues:\n${topIssues}\n\nCurrent files:\n${manifest}\n\nReturn only the PATCHED files.`,
                 tool: TOOL_PATCH, maxTokens: 32000, timeoutMs: 120_000, enqueue,
               });
@@ -534,12 +548,18 @@ Deno.serve(async (req: Request) => {
             }
           }
         } catch (e) {
-          console.error("Shopify review error (non-fatal):", e);
+          log.warn("review.failed", { error: e instanceof Error ? e.message : String(e) });
         }
 
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
       } catch (e) {
-        const msg = e instanceof AIError ? e.message : (e instanceof Error ? e.message : "Generation failed");
+        const msg = e instanceof CostLimitError
+          ? "This request hit the generation cost ceiling. Try a simpler app description."
+          : e instanceof AIError ? e.message : (e instanceof Error ? e.message : "Generation failed");
+        log.error("generation.error", {
+          error: e instanceof Error ? e.message : String(e),
+          costLimited: e instanceof CostLimitError, estCostUsd: costGuard.total, ms: Date.now() - startedAt,
+        });
         if (userId) {
           await recordGeneration(supabase, { user_id: userId, prompt, status: "failed", model_used: modelUsed, target: "shopify" });
         }

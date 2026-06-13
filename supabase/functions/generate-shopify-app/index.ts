@@ -16,6 +16,7 @@ import {
   getShopifyScaffoldFiles, getSelectedPolarisPatterns, scaffoldPaths,
   POLARIS_PATTERN_MENU,
 } from "./scaffold.ts";
+import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operations.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +35,9 @@ Available access scopes to choose from (pick the minimal set): ${COMMON_SCOPES.j
 
 You MUST also pick 3-5 Polaris pattern recipes the engineer will follow:
 ${POLARIS_PATTERN_MENU}
+
+For graphqlOperations, PREFER these validated Admin API root fields whenever they fit the app — the engineer will be given the exact, schema-validated operation for each:
+${ADMIN_OPERATION_MENU}
 
 Call emit_shopify_plan exactly once.`;
 
@@ -374,6 +378,17 @@ Deno.serve(async (req: Request) => {
         const plan = architect.toolArgs;
         if (!plan) throw new Error("Architect did not return a plan.");
 
+        // Ground generation in schema-validated Admin API operations chosen by
+        // the architect, and union their scopes into the plan so the generated
+        // shopify.app.toml requests exactly what the app uses (still minimal).
+        const opChoices = Array.isArray(plan.graphqlOperations)
+          ? (plan.graphqlOperations as { rootField?: string }[]).map((o) => o?.rootField ?? "").filter(Boolean)
+          : [];
+        const validatedOps = getValidatedOperations(opChoices);
+        const planScopes = new Set<string>(Array.isArray(plan.scopes) ? plan.scopes as string[] : []);
+        for (const s of validatedOps.scopes) planScopes.add(s);
+        plan.scopes = [...planScopes];
+
         const scopes = (plan.scopes as string[]) ?? [];
         const protectedScopes = scopes.filter(isProtectedScope);
         enqueue("progress", {
@@ -389,7 +404,7 @@ Deno.serve(async (req: Request) => {
 
         // Phase 2: Engineer
         const patternGuide = getSelectedPolarisPatterns((plan.polarisPatterns as string[]) ?? []);
-        const engineerMsg = `Merchant idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\n${patternGuide}\n\nAdmin API version: ${ADMIN_API_VERSION}.\n\nBuild the merchant-specific files. Implement every screen in the plan. Scaffold files are pre-injected — do NOT regenerate them.`;
+        const engineerMsg = `Merchant idea: "${prompt}"\n\nArchitect's plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\n${patternGuide}\n\n${validatedOps.snippets}\n\nAdmin API version: ${ADMIN_API_VERSION}.\n\nBuild the merchant-specific files. Implement every screen in the plan. Scaffold files are pre-injected — do NOT regenerate them.`;
         const engineer = await callWithFallback({
           provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT,
           userMessage: engineerMsg, tool: TOOL_PROJECT, maxTokens: 65536, timeoutMs: 300_000, enqueue,

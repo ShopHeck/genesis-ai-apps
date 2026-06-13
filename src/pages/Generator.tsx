@@ -320,9 +320,9 @@ export default function Generator() {
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70">
                 Out-of-the-box idea templates
               </p>
-              <p className="text-[11px] text-muted-foreground/60">
-                {EXAMPLE_PROMPTS.length} curated · click to load
-              </p>
+              <Link to="/templates" className="text-[11px] text-primary/80 hover:text-primary">
+                Browse full gallery ({EXAMPLE_PROMPTS.length}) →
+              </Link>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto pr-1 -mr-1">
               {EXAMPLE_PROMPTS.map((ex) => {

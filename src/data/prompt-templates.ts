@@ -48,8 +48,9 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
     screens: ["Badges", "Rules", "Preview"],
     accent: "#9C6ADE",
     emoji: "⭐",
+    archetype: "admin_extension",
     prompt:
-      "A product badge manager. Merchants create badges (label, color, icon) and rules that assign them — e.g. 'Bestseller' for top sellers, 'Almost gone' under 5 in stock. Persist badge definitions in Prisma and write the assigned badge to a product metafield via metafieldsSet so a theme can render it. Polaris settings page for badge design, a rules editor, and a preview card. Scopes: read_products, write_products, read_inventory.",
+      "A product badge manager. Merchants create badges (label, color, icon) and rules that assign them — e.g. 'Bestseller' for top sellers, 'Almost gone' under 5 in stock. Persist badge definitions in Prisma and write the assigned badge to a product metafield via metafieldsSet so a theme can render it. Also surface the current badge on the product detail page via an admin UI extension block. Polaris settings page for badge design, a rules editor, and a preview card. Scopes: read_products, write_products, read_inventory.",
   },
   {
     category: "Merchandising",
@@ -83,8 +84,9 @@ export const EXAMPLE_PROMPTS: PromptTemplate[] = [
     screens: ["Waitlists", "Signups", "Notify"],
     accent: "#F49342",
     emoji: "🔔",
+    archetype: "admin_extension",
     prompt:
-      "A back-in-stock waitlist app. Store signups (email + variant id) in Prisma keyed by shop. Subscribe to inventory_levels/update; when a sold-out variant is restocked, surface the waitlist so the merchant can notify customers. Polaris IndexTable of waitlists per product, a signups detail view, and a notify action. Scopes: read_products, read_inventory, read_customers.",
+      "A back-in-stock waitlist app. Store signups (email + variant id) in Prisma keyed by shop. Subscribe to inventory_levels/update; when a sold-out variant is restocked, surface the waitlist so the merchant can notify customers. Show the waitlist count on the product detail page via an admin UI extension block. Polaris IndexTable of waitlists per product, a signups detail view, and a notify action. Scopes: read_products, read_inventory, read_customers.",
   },
 
   // ───── Analytics ─────

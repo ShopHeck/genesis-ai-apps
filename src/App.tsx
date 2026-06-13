@@ -14,6 +14,7 @@ import { AuthHandler } from "./components/AuthHandler.tsx";
 const Generator = lazy(() => import("./pages/Generator.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Pricing = lazy(() => import("./pages/Pricing.tsx"));
+const Templates = lazy(() => import("./pages/Templates.tsx"));
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/generator" element={<Generator />} />
+              <Route path="/templates" element={<Templates />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="*" element={<NotFound />} />

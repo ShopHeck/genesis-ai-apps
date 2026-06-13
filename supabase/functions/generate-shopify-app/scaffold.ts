@@ -271,6 +271,51 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 `,
   },
   {
+    // Mandatory GDPR/CCPA compliance webhook — required for App Store apps.
+    path: "app/routes/webhooks.customers.data_request.tsx",
+    content: `import type { ActionFunctionArgs } from "react-router";
+import { authenticate } from "../shopify.server";
+
+// Mandatory compliance webhook: a customer requested their stored data.
+// Respond 200 after gathering any personal data this app stores for them.
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { shop, topic } = await authenticate.webhook(request);
+  console.log(\`Received \${topic} webhook for \${shop}\`);
+  // This app stores no personal customer data beyond Shopify session records.
+  return new Response();
+};
+`,
+  },
+  {
+    path: "app/routes/webhooks.customers.redact.tsx",
+    content: `import type { ActionFunctionArgs } from "react-router";
+import { authenticate } from "../shopify.server";
+
+// Mandatory compliance webhook: erase a customer's personal data.
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { shop, topic } = await authenticate.webhook(request);
+  console.log(\`Received \${topic} webhook for \${shop}\`);
+  // Delete any per-customer data this app persists here.
+  return new Response();
+};
+`,
+  },
+  {
+    path: "app/routes/webhooks.shop.redact.tsx",
+    content: `import type { ActionFunctionArgs } from "react-router";
+import { authenticate } from "../shopify.server";
+import db from "../db.server";
+
+// Mandatory compliance webhook: erase a shop's data 48h after uninstall.
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { shop, topic } = await authenticate.webhook(request);
+  console.log(\`Received \${topic} webhook for \${shop}\`);
+  await db.session.deleteMany({ where: { shop } });
+  return new Response();
+};
+`,
+  },
+  {
     path: "tsconfig.json",
     content: `{
   "include": ["env.d.ts", "**/*.ts", "**/*.tsx"],
@@ -443,6 +488,12 @@ api_version = "${ADMIN_API_VERSION}"
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
   uri = "/webhooks/app/scopes_update"
+
+  # Mandatory privacy/compliance webhooks (required for App Store apps).
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "/webhooks/customers/data_request"
+  customer_deletion_url = "/webhooks/customers/redact"
+  shop_deletion_url = "/webhooks/shop/redact"
 
 [pos]
 embedded = false

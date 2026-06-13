@@ -17,6 +17,8 @@ import {
   POLARIS_PATTERN_MENU,
 } from "./scaffold.ts";
 import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operations.ts";
+import { runCompliance, complianceSummary } from "./compliance.ts";
+import { buildSubmissionKit } from "./submission-kit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -429,11 +431,19 @@ Deno.serve(async (req: Request) => {
           enqueue("progress", { phase: "generating", message: `${tag} validation: ${validation.errors.join("; ")}`, percent: 60 });
         }
 
-        enqueue("progress", { phase: "bundling", message: `${tag} app built: ${project.files.length} files`, percent: 85 });
+        // Deterministic Built-for-Shopify compliance gate + submission kit.
+        const compliance = runCompliance(project, plan as Record<string, unknown>);
+        const kit = buildSubmissionKit(plan as Record<string, unknown>, compliance);
+        project.files.push(kit);
+        enqueue("progress", { phase: "bundling", message: `${tag} ${complianceSummary(compliance)}`, percent: 90 });
+        enqueue("compliance", { compliance });
+
+        enqueue("progress", { phase: "bundling", message: `${tag} app built: ${project.files.length} files`, percent: 95 });
 
         const resultProject = {
           ...project,
           plan,
+          compliance,
           bundleId: `shopify.${(plan.appName as string ?? "app").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
           target: "shopify",
         };

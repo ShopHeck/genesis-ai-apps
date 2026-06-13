@@ -38,6 +38,7 @@ import { buildTree, FileTreeView } from "@/components/generator/FileTree";
 import { ZipPreviewCard } from "@/components/generator/ZipPreviewCard";
 import { RefinementChat } from "@/components/generator/RefinementChat";
 import { QualityScore } from "@/components/generator/QualityScore";
+import { CompliancePanel } from "@/components/generator/CompliancePanel";
 import { LiveSandbox } from "@/components/generator/LiveSandbox";
 import { TerminalPanel } from "@/components/generator/TerminalPanel";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
@@ -668,6 +669,9 @@ export default function Generator() {
                       setSelectedFile(updated.files[0]?.path ?? null);
                     }}
                   />
+                  {isShopify && project.compliance && (
+                    <CompliancePanel report={project.compliance} />
+                  )}
                   <QualityScore project={project} previewHtml={previewHtml} />
                 </>
               )}

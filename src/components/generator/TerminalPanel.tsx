@@ -5,7 +5,7 @@ import { STAGES } from "./stage-config";
 
 interface TerminalPanelProps {
   stage: Stage;
-  target: "ios" | "web";
+  target: "shopify" | "web";
   elapsed: number;
   logs: LogLine[];
   terminalRef: React.RefObject<HTMLDivElement | null>;

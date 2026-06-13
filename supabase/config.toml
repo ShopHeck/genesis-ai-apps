@@ -1,6 +1,9 @@
 project_id = "yntpprkrsuwiaogccirh"
 
-[functions.generate-ios-app]
+[functions.generate-shopify-app]
+verify_jwt = false
+
+[functions.generate-web-app]
 verify_jwt = false
 
 [functions.generate-app-preview]

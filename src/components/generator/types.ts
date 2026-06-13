@@ -1,5 +1,19 @@
 export type GeneratedFile = { path: string; content: string };
 
+export type ComplianceSeverity = "error" | "warning" | "info";
+export type ComplianceCheck = {
+  id: string;
+  label: string;
+  severity: ComplianceSeverity;
+  passed: boolean;
+  detail?: string;
+};
+export type ComplianceReport = {
+  score: number;
+  passed: boolean;
+  checks: ComplianceCheck[];
+};
+
 export type Project = {
   appName: string;
   bundleId: string;
@@ -7,6 +21,7 @@ export type Project = {
   files: GeneratedFile[];
   plan?: Record<string, unknown>;
   reviewScore?: number;
+  compliance?: ComplianceReport;
 };
 
 export type PromptTemplate = {

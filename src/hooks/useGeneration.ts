@@ -270,6 +270,14 @@ export function useGeneration(): GenerationState & GenerationActions {
           } else if (event.type === "review") {
             const score = event.reviewScore as number | undefined;
             pushLog("success", `[reviewer] quality score: ${score ?? "—"}/100 · approved`);
+          } else if (event.type === "compliance") {
+            const report = event.compliance as Project["compliance"];
+            if (report) {
+              setProject(prev => prev ? { ...prev, compliance: report } : prev);
+              const failed = report.checks.filter(c => !c.passed).length;
+              pushLog(report.passed ? "success" : "warning",
+                `[compliance] Built for Shopify: ${report.score}/100${failed ? ` · ${failed} check(s) to address` : " · all checks passed"}`);
+            }
           } else if (event.type === "error") {
             throw new Error((event.message as string) ?? "Generation failed");
           }

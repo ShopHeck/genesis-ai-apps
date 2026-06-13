@@ -14,6 +14,7 @@ import { providerAllowed } from "../_shared/plan-limits.ts";
 import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION } from "../_shared/shopify.ts";
 import {
   getShopifyScaffoldFiles, getSelectedPolarisPatterns, scaffoldPaths,
+  getAdminExtensionFiles, normalizeAdminBlock, ADMIN_EXTENSION_TARGETS,
   POLARIS_PATTERN_MENU,
 } from "./scaffold.ts";
 import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operations.ts";
@@ -112,6 +113,17 @@ const TOOL_PLAN: AITool = {
       },
       polarisPatterns: { type: "array", items: { type: "string" }, description: "3-5 pattern ids from the menu." },
       acceptanceCriteria: { type: "array", items: { type: "string" }, description: "5-7 testable quality gates." },
+      includeAdminBlock: { type: "boolean", description: `Set true to ALSO surface app data directly on an admin resource page via an Admin UI extension. Use when the app's value benefits from appearing on the product/order/customer detail page.` },
+      adminBlock: {
+        type: "object",
+        description: "Admin UI extension spec (only when includeAdminBlock is true).",
+        properties: {
+          name: { type: "string" },
+          handle: { type: "string", description: "kebab-case, e.g. low-stock-block" },
+          target: { type: "string", description: `One of: ${ADMIN_EXTENSION_TARGETS.join(", ")}` },
+          purpose: { type: "string" },
+        },
+      },
     },
     required: [
       "appName", "tagline", "archetype", "scopes", "scopeJustification",
@@ -419,10 +431,18 @@ Deno.serve(async (req: Request) => {
           percent: 25,
         });
 
-        // Stream scaffold immediately
-        const scaffoldFiles = getShopifyScaffoldFiles(plan as Record<string, unknown>);
+        // Stream scaffold immediately (app plumbing + optional admin UI extension).
+        const adminBlock = normalizeAdminBlock(plan as Record<string, unknown>);
+        const scaffoldFiles = [
+          ...getShopifyScaffoldFiles(plan as Record<string, unknown>),
+          ...getAdminExtensionFiles(plan as Record<string, unknown>),
+        ];
         for (const f of scaffoldFiles) enqueue("file", { path: f.path, content: f.content, phase: "scaffold" });
-        enqueue("progress", { phase: "generating", message: `${tag} scaffold ready (${scaffoldFiles.length} files) — engineer writing app code…`, percent: 35 });
+        enqueue("progress", {
+          phase: "generating",
+          message: `${tag} scaffold ready (${scaffoldFiles.length} files${adminBlock ? ` · +admin ${adminBlock.target.includes("action") ? "action" : "block"} extension` : ""}) — engineer writing app code…`,
+          percent: 35,
+        });
 
         // Phase 2: Engineer
         const patternGuide = getSelectedPolarisPatterns((plan.polarisPatterns as string[]) ?? []);

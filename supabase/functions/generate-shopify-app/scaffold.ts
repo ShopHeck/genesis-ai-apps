@@ -548,7 +548,95 @@ export const headers: HeadersFunction = (headersArgs) => {
   return files;
 }
 
+// ─── Admin UI extension archetype (add-on) ──────────────────────────────
+// When the plan opts in, emit a Polaris-admin **UI extension** (Preact via
+// @shopify/ui-extensions-react/admin) alongside the embedded app — e.g. a block
+// on the product detail page. This is a second archetype layered into the same
+// app project (extensions live under extensions/<handle>/).
+
+export const ADMIN_EXTENSION_TARGETS = [
+  "admin.product-details.block.render",
+  "admin.order-details.block.render",
+  "admin.customer-details.block.render",
+  "admin.product-details.action.render",
+] as const;
+
+export interface AdminBlockSpec {
+  handle: string;
+  name: string;
+  target: string;
+  purpose?: string;
+}
+
+export function normalizeAdminBlock(plan: Record<string, unknown>): AdminBlockSpec | null {
+  const raw = plan.adminBlock as Partial<AdminBlockSpec> | undefined;
+  if (!raw || plan.includeAdminBlock !== true) return null;
+  const target = (ADMIN_EXTENSION_TARGETS as readonly string[]).includes(raw.target ?? "")
+    ? raw.target!
+    : "admin.product-details.block.render";
+  const handle = slug(raw.handle ?? raw.name ?? "admin-block");
+  return { handle, name: raw.name ?? "Admin block", target, purpose: raw.purpose };
+}
+
+export function getAdminExtensionFiles(plan: Record<string, unknown>): { path: string; content: string }[] {
+  const spec = normalizeAdminBlock(plan);
+  if (!spec) return [];
+  const dir = `extensions/${spec.handle}`;
+  const isAction = spec.target.endsWith("action.render");
+  const wrapper = isAction ? "AdminAction" : "AdminBlock";
+
+  return [
+    {
+      // uid is assigned by the Shopify CLI on first deploy when omitted.
+      path: `${dir}/shopify.extension.toml`,
+      content: `api_version = "${ADMIN_API_VERSION}"
+
+[[extensions]]
+name = "t:name"
+handle = "${spec.handle}"
+type = "ui_extension"
+
+  [[extensions.targeting]]
+  module = "./src/BlockExtension.tsx"
+  target = "${spec.target}"
+`,
+    },
+    {
+      path: `${dir}/locales/en.default.json`,
+      content: JSON.stringify({ name: spec.name }, null, 2) + "\n",
+    },
+    {
+      path: `${dir}/src/BlockExtension.tsx`,
+      content: `import {
+  reactExtension,
+  ${wrapper},
+  BlockStack,
+  Text,
+} from "@shopify/ui-extensions-react/admin";
+
+const TARGET = "${spec.target}";
+
+export default reactExtension(TARGET, () => <Extension />);
+
+function Extension() {
+  // ${spec.purpose ?? "Surface app data on this admin page."}
+  return (
+    <${wrapper}${isAction ? ` title="${spec.name}"` : ` title="${spec.name}"`}>
+      <BlockStack gap="base">
+        <Text>${spec.name}</Text>
+      </BlockStack>
+    </${wrapper}>
+  );
+}
+`,
+    },
+  ];
+}
+
 // Paths the engineer must NOT emit (injected scaffold). Used by validation.
 export function scaffoldPaths(plan: Record<string, unknown>): Set<string> {
-  return new Set(getShopifyScaffoldFiles(plan).map((f) => f.path));
+  return new Set([
+    ...getShopifyScaffoldFiles(plan).map((f) => f.path),
+    ...getAdminExtensionFiles(plan).map((f) => f.path),
+  ]);
 }

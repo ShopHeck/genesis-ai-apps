@@ -22,6 +22,7 @@ jobs:
           - regenerate-file
           - evaluate-quality
           - create-checkout-session
+          - create-portal-session
           - stripe-webhook
     steps:
       - uses: actions/checkout@v4

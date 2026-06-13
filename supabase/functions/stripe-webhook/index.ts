@@ -36,7 +36,21 @@ async function verifyStripeSignature(body: string, signature: string, secret: st
   );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   const expected = Array.from(new Uint8Array(mac)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return expected === sig;
+  return timingSafeEqual(expected, sig);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return mismatch === 0;
+}
+
+async function fetchSubscription(subscriptionId: string): Promise<Record<string, unknown>> {
+  const resp = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+    headers: { Authorization: `Bearer ${Deno.env.get("STRIPE_SECRET_KEY")}` },
+  });
+  return await resp.json();
 }
 
 function planFromMetadata(metadata: Record<string, string>): "pro" | "studio" | "free" {
@@ -113,6 +127,39 @@ Deno.serve(async (req: Request) => {
         await supabase.from("subscriptions").update({
           plan: "free",
           status: "canceled",
+          updated_at: new Date().toISOString(),
+        }).eq("user_id", userId);
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        // Mark the subscription past_due so the app can prompt the merchant to
+        // update their card. Resolve the user via the subscription metadata.
+        const invoice = event.data.object;
+        if (!invoice.subscription) break;
+        const sub = await fetchSubscription(invoice.subscription);
+        const userId = sub.metadata && (sub.metadata as Record<string, string>).supabase_user_id;
+        if (!userId) break;
+        await supabase.from("subscriptions").update({
+          status: "past_due",
+          updated_at: new Date().toISOString(),
+        }).eq("user_id", userId);
+        break;
+      }
+
+      case "invoice.paid":
+      case "invoice.payment_succeeded": {
+        // Recovery from past_due (or renewal) → re-activate.
+        const invoice = event.data.object;
+        if (!invoice.subscription) break;
+        const sub = await fetchSubscription(invoice.subscription);
+        const userId = sub.metadata && (sub.metadata as Record<string, string>).supabase_user_id;
+        if (!userId) break;
+        await supabase.from("subscriptions").update({
+          status: (sub.status as string) ?? "active",
+          current_period_end: sub.current_period_end
+            ? new Date((sub.current_period_end as number) * 1000).toISOString()
+            : null,
           updated_at: new Date().toISOString(),
         }).eq("user_id", userId);
         break;

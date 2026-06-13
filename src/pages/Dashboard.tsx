@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -50,8 +50,10 @@ const PLAN_LABELS: Record<string, { label: string; color: string; icon: React.Re
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, plan, monthlyUsage, loading: authLoading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
   const [generations, setGenerations] = useState<GenerationRecord[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -81,6 +83,27 @@ export default function Dashboard() {
       setLoadingData(false);
     }
   }
+
+  useEffect(() => {
+    if (searchParams.get("upgraded")) {
+      toast.success("Plan upgraded — thanks for subscribing!");
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleManageBilling = async () => {
+    setBillingLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-portal-session", {});
+      if (error) throw error;
+      if (data?.url) window.location.href = data.url;
+      else throw new Error("No portal URL returned");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not open billing portal");
+      setBillingLoading(false);
+    }
+  };
 
   const handleReDownload = async (gen: GenerationRecord) => {
     if (!gen.files || gen.files.length === 0) {
@@ -165,12 +188,17 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          {plan === "free" && (
+          {plan === "free" ? (
             <Button asChild variant="outline" className="border-primary/40 text-primary hover:bg-primary/10">
               <Link to="/pricing">
                 <Crown size={14} className="mr-1.5" />
                 Upgrade to Pro
               </Link>
+            </Button>
+          ) : (
+            <Button variant="outline" className="border-border/60 hover:border-primary/40" onClick={handleManageBilling} disabled={billingLoading}>
+              {billingLoading ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <Crown size={14} className="mr-1.5" />}
+              Manage subscription
             </Button>
           )}
         </motion.div>

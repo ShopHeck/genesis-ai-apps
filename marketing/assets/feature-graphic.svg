@@ -21,14 +21,14 @@
       <text x="78" y="40" font-family="Space Grotesk, system-ui, sans-serif" font-size="32" font-weight="700" fill="#E6EAF0" letter-spacing="-0.5">ApexBuild</text>
     </g>
 
-    <text x="0" y="190" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="92" letter-spacing="-3" fill="#E6EAF0">From a sentence</text>
-    <text x="0" y="290" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="92" letter-spacing="-3"><tspan fill="url(#gt)">to a shippable app.</tspan></text>
+    <text x="0" y="178" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="62" letter-spacing="-2" fill="#E6EAF0">From a sentence</text>
+    <text x="0" y="250" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="62" letter-spacing="-2"><tspan fill="url(#gt)">to a shippable app.</tspan></text>
 
-    <text x="0" y="372" font-family="Inter, system-ui, sans-serif" font-size="30" fill="#9AA3B0">The AI app builder made for Shopify merchants and partners.</text>
-    <text x="0" y="414" font-family="Inter, system-ui, sans-serif" font-size="30" fill="#9AA3B0">Installable. Compliant. Grounded in your real store.</text>
+    <text x="0" y="318" font-family="Inter, system-ui, sans-serif" font-size="26" fill="#9AA3B0">The AI app builder for Shopify —</text>
+    <text x="0" y="354" font-family="Inter, system-ui, sans-serif" font-size="26" fill="#9AA3B0">installable, compliant, grounded in your store.</text>
 
     <!-- CTA -->
-    <g transform="translate(0,470)">
+    <g transform="translate(0,410)">
       <rect width="280" height="64" rx="32" fill="url(#g)"/>
       <text x="140" y="41" text-anchor="middle" font-family="Space Grotesk, system-ui, sans-serif" font-size="24" font-weight="700" fill="#0D0E12">Start building free</text>
     </g>

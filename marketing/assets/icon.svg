@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ApexBuild icon">
+  <defs>
+    <linearGradient id="spark" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#5B50E0"/>
+      <stop offset="1" stop-color="#A06FD6"/>
+    </linearGradient>
+    <radialGradient id="canvas" cx="0.5" cy="0.28" r="0.95">
+      <stop stop-color="#1B1F2A"/>
+      <stop offset="1" stop-color="#0D0E12"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="116" fill="url(#canvas)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="114.5" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+
+  <!-- four-point AI sparkle, concave star -->
+  <g filter="url(#glow)">
+    <path fill="url(#spark)" d="M256 92
+      C 270 184, 328 242, 420 256
+      C 328 270, 270 328, 256 420
+      C 242 328, 184 270, 92 256
+      C 184 242, 242 184, 256 92 Z"/>
+  </g>
+  <!-- small accent spark -->
+  <path fill="#22D3EE" fill-opacity="0.95" d="M372 132
+    C 377 156, 388 167, 412 172
+    C 388 177, 377 188, 372 212
+    C 367 188, 356 177, 332 172
+    C 356 167, 367 156, 372 132 Z"/>
+</svg>

@@ -1,0 +1,54 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ApexBuild — Describe it. Ship a Shopify app.">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/><stop offset="0.5" stop-color="#5B50E0"/><stop offset="1" stop-color="#A06FD6"/>
+    </linearGradient>
+    <radialGradient id="blobA" cx="0.5" cy="0.5" r="0.5">
+      <stop stop-color="#22D3EE" stop-opacity="0.5"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blobB" cx="0.5" cy="0.5" r="0.5">
+      <stop stop-color="#A06FD6" stop-opacity="0.45"/><stop offset="1" stop-color="#A06FD6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gtext" x1="80" y1="0" x2="760" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/><stop offset="1" stop-color="#A06FD6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0D0E12"/>
+  <circle cx="980" cy="120" r="360" fill="url(#blobA)"/>
+  <circle cx="160" cy="600" r="380" fill="url(#blobB)"/>
+  <rect x="0.5" y="0.5" width="1199" height="629" stroke="#ffffff" stroke-opacity="0.06"/>
+
+  <!-- brand row -->
+  <g transform="translate(80,72)">
+    <rect width="56" height="56" rx="15" fill="#15171D"/>
+    <rect x="0.7" y="0.7" width="54.6" height="54.6" rx="14.3" stroke="#ffffff" stroke-opacity="0.1"/>
+    <path fill="url(#g)" transform="translate(0,0) scale(0.109)" d="M256 92 C 270 184, 328 242, 420 256 C 328 270, 270 328, 256 420 C 242 328, 184 270, 92 256 C 184 242, 242 184, 256 92 Z"/>
+    <text x="74" y="38" font-family="Space Grotesk, system-ui, sans-serif" font-size="30" font-weight="700" letter-spacing="-0.5">
+      <tspan fill="#E6EAF0">ApexBuild</tspan>
+    </text>
+  </g>
+
+  <!-- headline -->
+  <text x="80" y="290" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="76" letter-spacing="-2.5" fill="#E6EAF0">Describe it.</text>
+  <text x="80" y="378" font-family="Space Grotesk, system-ui, sans-serif" font-weight="700" font-size="76" letter-spacing="-2.5"><tspan fill="url(#gtext)">Ship a Shopify app.</tspan></text>
+
+  <text x="80" y="446" font-family="Inter, system-ui, sans-serif" font-size="28" fill="#9AA3B0">An installable, Built-for-Shopify app from one sentence —</text>
+  <text x="80" y="484" font-family="Inter, system-ui, sans-serif" font-size="28" fill="#9AA3B0">grounded in your real store.</text>
+
+  <!-- trust chips -->
+  <g font-family="Inter, system-ui, sans-serif" font-size="22" fill="#C7CDD6">
+    <g transform="translate(80,536)">
+      <rect width="266" height="48" rx="24" fill="#15171D" stroke="#ffffff" stroke-opacity="0.08"/>
+      <circle cx="28" cy="24" r="5" fill="#22D3EE"/><text x="48" y="31">App Bridge + Polaris</text>
+    </g>
+    <g transform="translate(362,536)">
+      <rect width="262" height="48" rx="24" fill="#15171D" stroke="#ffffff" stroke-opacity="0.08"/>
+      <circle cx="28" cy="24" r="5" fill="#5B50E0"/><text x="48" y="31">Admin GraphQL API</text>
+    </g>
+    <g transform="translate(640,536)">
+      <rect width="262" height="48" rx="24" fill="#15171D" stroke="#ffffff" stroke-opacity="0.08"/>
+      <circle cx="28" cy="24" r="5" fill="#A06FD6"/><text x="48" y="31">Built for Shopify ready</text>
+    </g>
+  </g>
+</svg>

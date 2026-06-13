@@ -19,9 +19,9 @@ const PLANS = [
     description: "Start building instantly. No credit card required.",
     features: [
       "3 app generations / month",
-      "Interactive HTML preview",
-      "Download Xcode project ZIP",
-      "30+ curated app templates",
+      "Installable via shopify app dev",
+      "Download full project ZIP",
+      "Curated Shopify app templates",
       "Community support",
       "ApexBuild README watermark",
     ],
@@ -40,10 +40,10 @@ const PLANS = [
       "30 app generations / month",
       "In-browser Monaco code editor",
       "Regenerate individual files with AI",
+      "Connect your store for real-catalog grounding",
       "Project history (last 30 saved)",
       "Priority generation queue",
-      "No watermark",
-      "Email support",
+      "No watermark · email support",
     ],
     cta: "Upgrade to Pro",
     ctaVariant: "default" as const,
@@ -59,13 +59,12 @@ const PLANS = [
     description: "For teams shipping multiple apps per month.",
     features: [
       "Unlimited app generations",
-      "Claude Opus 4.7 model option",
+      "Claude Opus model option",
+      "Admin UI extension archetype",
+      "App Store submission kit",
       "Full project history",
       "3 team seats",
-      "REST API access",
-      "Priority Slack support",
-      "Custom bundle ID prefix",
-      "White-label exports",
+      "Priority Slack support · white-label exports",
     ],
     cta: "Upgrade to Studio",
     ctaVariant: "outline" as const,
@@ -143,7 +142,7 @@ export default function Pricing() {
             Start free. <span className="gradient-text">Ship faster.</span>
           </h1>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Every plan generates production-grade SwiftUI apps. Upgrade when you need more builds, the code editor, or team features.
+            Every plan generates installable, Built-for-Shopify apps. Upgrade when you need more builds, the code editor, store grounding, or team features.
           </p>
         </motion.div>
 
@@ -226,11 +225,11 @@ export default function Pricing() {
           <h3 className="font-display text-lg font-semibold mb-2">All plans include</h3>
           <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 mt-4 text-sm text-muted-foreground">
             {[
-              "Swift 6 strict concurrency",
-              "SwiftData persistence",
-              "SwiftUI + NavigationStack",
-              "Xcode 16+ / iOS 18+ target",
-              "XcodeGen project manifest",
+              "React Router + Polaris",
+              "Admin GraphQL API wired",
+              "OAuth + sessions + webhooks",
+              "Built-for-Shopify compliance checks",
+              "App Store submission kit",
               "You own 100% of the code",
             ].map((item) => (
               <span key={item} className="flex items-center gap-1.5">

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { getShopifyScaffoldFiles, scaffoldPaths, POLARIS_PATTERNS, getSelectedPolarisPatterns } from "./scaffold";
+import {
+  getShopifyScaffoldFiles, scaffoldPaths, POLARIS_PATTERNS, getSelectedPolarisPatterns,
+  getAdminExtensionFiles, normalizeAdminBlock,
+} from "./scaffold";
 import { isProtectedScope, ADMIN_API_VERSION } from "../_shared/shopify";
 
 const plan = {
@@ -73,5 +76,45 @@ describe("getSelectedPolarisPatterns", () => {
     const guide = getSelectedPolarisPatterns(ids);
     expect(guide).toContain("POLARIS PATTERN RECIPES");
     expect(getSelectedPolarisPatterns([])).toBe("");
+  });
+});
+
+describe("admin UI extension archetype", () => {
+  const blockPlan = {
+    appName: "Stock Watch",
+    includeAdminBlock: true,
+    adminBlock: { name: "Low stock", handle: "Low Stock!", target: "admin.product-details.block.render", purpose: "show stock" },
+  };
+
+  it("emits nothing unless opted in", () => {
+    expect(getAdminExtensionFiles({ appName: "X" })).toEqual([]);
+    expect(normalizeAdminBlock({ appName: "X", adminBlock: {} })).toBeNull();
+  });
+
+  it("emits a valid block extension when opted in", () => {
+    const files = getAdminExtensionFiles(blockPlan);
+    const byPath = new Map(files.map((f) => [f.path, f.content]));
+    expect(byPath.has("extensions/low-stock/shopify.extension.toml")).toBe(true);
+    expect(byPath.has("extensions/low-stock/src/BlockExtension.tsx")).toBe(true);
+    expect(byPath.has("extensions/low-stock/locales/en.default.json")).toBe(true);
+    expect(byPath.get("extensions/low-stock/shopify.extension.toml")).toContain('target = "admin.product-details.block.render"');
+    const tsx = byPath.get("extensions/low-stock/src/BlockExtension.tsx")!;
+    expect(tsx).toContain("@shopify/ui-extensions-react/admin");
+    expect(tsx).toContain("AdminBlock");
+    expect(tsx).toContain("reactExtension");
+  });
+
+  it("uses AdminAction wrapper for action targets and falls back to a safe target", () => {
+    const action = getAdminExtensionFiles({ ...blockPlan, adminBlock: { ...blockPlan.adminBlock, target: "admin.product-details.action.render" } });
+    expect(action.find((f) => f.path.endsWith("BlockExtension.tsx"))!.content).toContain("AdminAction");
+    const bad = normalizeAdminBlock({ ...blockPlan, adminBlock: { ...blockPlan.adminBlock, target: "bogus" } })!;
+    expect(bad.target).toBe("admin.product-details.block.render");
+  });
+
+  it("includes extension paths in the reserved scaffold set", () => {
+    const reserved = scaffoldPaths(blockPlan);
+    for (const f of getAdminExtensionFiles(blockPlan)) {
+      expect(reserved.has(f.path)).toBe(true);
+    }
   });
 });

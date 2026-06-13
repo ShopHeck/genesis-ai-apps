@@ -8,8 +8,12 @@
 // Supports streaming (SSE) and two AI backends: Gemini (default) + Claude (Studio).
 // Enforces per-user monthly quotas based on subscription plan.
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
+import {
+  adminClient, resolveUserId, clientIp, hashIp,
+  checkUserQuota, checkAnonQuota, recordGeneration, recordAnonGeneration, isBurstLimited,
+} from "../_shared/quota.ts";
+import { providerAllowed } from "../_shared/plan-limits.ts";
 import { getSelectedPatterns, PATTERN_MENU } from "./component-library.ts";
 
 const corsHeaders = {
@@ -422,24 +426,6 @@ function sseEvent(type: string, data: Record<string, unknown>): string {
   return `data: ${JSON.stringify({ type, ...data })}\n\n`;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Quota enforcement
-// ─────────────────────────────────────────────────────────────
-const PLAN_LIMITS: Record<string, number> = {
-  free: 3,
-  pro: 30,
-  studio: Infinity,
-};
-
-async function checkQuota(supabase: ReturnType<typeof createClient>, userId: string): Promise<{ allowed: boolean; plan: string; used: number; limit: number }> {
-  const { data: planData } = await supabase.rpc("get_user_plan", { p_user_id: userId });
-  const { data: usedData } = await supabase.rpc("count_monthly_generations", { p_user_id: userId });
-  const plan = (planData as string) ?? "free";
-  const used = (usedData as number) ?? 0;
-  const limit = PLAN_LIMITS[plan] ?? 3;
-  return { allowed: used < limit, plan, used, limit };
-}
-
 // Convert our OpenAI-style tool definitions to the AITool shape used by callAI.
 function toAITool(t: { function: { name: string; description: string; parameters: Record<string, unknown> } }): AITool {
   return t.function;
@@ -764,25 +750,6 @@ async function reviewAndRefine(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Rate limiting (per-IP, sliding window)
-// ─────────────────────────────────────────────────────────────
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 5;
-const ipHits = new Map<string, number[]>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-  if (hits.length >= RATE_LIMIT_MAX) {
-    ipHits.set(ip, hits);
-    return true;
-  }
-  hits.push(now);
-  ipHits.set(ip, hits);
-  return false;
-}
-
-// ─────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
@@ -790,44 +757,35 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? req.headers.get("cf-connecting-ip")
-    ?? "unknown";
-
-  if (isRateLimited(clientIp)) {
+  const ip = clientIp(req);
+  if (isBurstLimited(ip)) {
     return new Response(
       JSON.stringify({ error: "Too many requests. Please wait a minute before trying again." }),
       { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } },
     );
   }
 
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-  let userId: string | null = null;
+  const adminSupabase = adminClient();
+  const userId = await resolveUserId(req);
   let userPlan = "free";
-
-  const authHeader = req.headers.get("Authorization");
-  if (authHeader) {
-    try {
-      const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: { user } } = await userClient.auth.getUser();
-      userId = user?.id ?? null;
-    } catch { /* non-fatal */ }
-  }
-
-  const adminSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  let ipHash: string | null = null;
 
   if (userId) {
-    const quota = await checkQuota(adminSupabase, userId);
+    const quota = await checkUserQuota(adminSupabase, userId);
     userPlan = quota.plan;
     if (!quota.allowed) {
       return new Response(
         JSON.stringify({ error: `Monthly limit reached (${quota.used}/${quota.limit} builds). Upgrade your plan at /pricing.` }),
         { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  } else {
+    ipHash = await hashIp(ip);
+    const anon = await checkAnonQuota(adminSupabase, ipHash);
+    if (!anon.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Free trial used. Sign in to get more builds." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
   }
@@ -857,7 +815,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  if (provider !== "gemini" && userPlan !== "studio") {
+  if (!providerAllowed(provider, userPlan)) {
     return new Response(
       JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -915,7 +873,7 @@ Deno.serve(async (req: Request) => {
 
         if (userId) {
           const proj = project as { appName?: string; bundleId?: string; summary?: string; files?: unknown[] };
-          await adminSupabase.from("generations").insert({
+          await recordGeneration(adminSupabase, {
             user_id: userId,
             prompt,
             app_name: proj.appName,
@@ -926,7 +884,10 @@ Deno.serve(async (req: Request) => {
             status: "success",
             model_used: modelUsed,
             cost_usd: costEstimate,
+            target: "ios",
           });
+        } else if (ipHash) {
+          await recordAnonGeneration(adminSupabase, ipHash);
         }
 
         // ── Phases 4-5: deferred review + refine (runs while user
@@ -964,11 +925,12 @@ Deno.serve(async (req: Request) => {
         const userMessage = formatUserError(err);
 
         if (userId) {
-          await adminSupabase.from("generations").insert({
+          await recordGeneration(adminSupabase, {
             user_id: userId,
             prompt,
             status: "failed",
             model_used: modelUsed,
+            target: "ios",
           });
         }
 

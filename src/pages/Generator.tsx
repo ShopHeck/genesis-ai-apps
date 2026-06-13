@@ -39,6 +39,7 @@ import { ZipPreviewCard } from "@/components/generator/ZipPreviewCard";
 import { RefinementChat } from "@/components/generator/RefinementChat";
 import { QualityScore } from "@/components/generator/QualityScore";
 import { CompliancePanel } from "@/components/generator/CompliancePanel";
+import { ConnectStore } from "@/components/generator/ConnectStore";
 import { LiveSandbox } from "@/components/generator/LiveSandbox";
 import { TerminalPanel } from "@/components/generator/TerminalPanel";
 import { EXAMPLE_PROMPTS } from "@/data/prompt-templates";
@@ -71,9 +72,14 @@ export default function Generator() {
     const remixId = searchParams.get("remix");
     const prefillPrompt = searchParams.get("prompt");
     const prefillTarget = searchParams.get("target") as Target | null;
+    const connectedShop = searchParams.get("connected");
 
     if (prefillPrompt) setPrompt(decodeURIComponent(prefillPrompt));
     if (prefillTarget === "shopify" || prefillTarget === "web") setTarget(prefillTarget);
+    if (connectedShop) {
+      toast.success(`Connected ${connectedShop} — generation will use your real catalog`);
+      setSearchParams({}, { replace: true });
+    }
 
     if (regenerateId) {
       setParentGenerationId(regenerateId);
@@ -263,6 +269,13 @@ export default function Generator() {
               {isShopify ? "React Router + Polaris + Admin API" : "React + Tailwind + Vite"}
             </span>
           </div>
+
+          {/* Optional store grounding (Shopify target) */}
+          {isShopify && (
+            <div className="mb-5">
+              <ConnectStore userId={user?.id ?? null} />
+            </div>
+          )}
 
           {/* Remix / Re-generate indicator */}
           {parentGenerationId && (

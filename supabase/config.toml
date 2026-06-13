@@ -3,6 +3,11 @@ project_id = "yntpprkrsuwiaogccirh"
 [functions.generate-shopify-app]
 verify_jwt = false
 
+# OAuth callback is hit by Shopify's redirect (no JWT); auth is enforced via
+# HMAC + a CSRF state nonce inside the function.
+[functions.shopify-oauth]
+verify_jwt = false
+
 [functions.generate-web-app]
 verify_jwt = false
 

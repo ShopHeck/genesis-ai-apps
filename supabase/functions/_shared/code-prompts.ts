@@ -1,3 +1,5 @@
+import { FORBIDDEN_IMPORT_SPECS } from "./shopify.ts";
+
 // Target-aware code-assistant rules shared by regenerate-file (single file) and
 // refine-project (conversational rebuild). The old regenerate-file path was wired
 // to a removed iOS (SwiftUI/Swift 6) pipeline; these are the target-aware
@@ -25,7 +27,13 @@ Hard rules (violations cause automated rejection):
 4. UI uses ONLY @shopify/polaris components (Page, Card, Layout, IndexTable, BlockStack, Text, Button, etc.). No raw HTML layout, no inline styles, no Tailwind.
 5. App-owned data uses Prisma, always scoped by \`shop\` (from session.shop).
 6. Provide an empty state for every index/list screen.
-7. Return COMPLETE, runnable code — no TODOs, no stubs, no placeholders.`;
+7. Return COMPLETE, runnable code — no TODOs, no stubs, no placeholders.
+8. IMPORT WHITELIST — this template installs ONLY these packages, so every import MUST come from exactly them:
+   react, react-dom, react-router, @react-router/node, @react-router/serve, @react-router/fs-routes,
+   @react-router/dev, @shopify/polaris, @shopify/app-bridge-react, @shopify/shopify-app-react-router,
+   @shopify/shopify-app-session-storage-prisma, @prisma/client, prisma, plus relative imports (../, ./).
+   FORBIDDEN (NOT installed; break \`shopify app dev\`): ${FORBIDDEN_IMPORT_SPECS.join(", ")}.
+   Use \`import { authenticate } from "../shopify.server"\` — do NOT import a separate session/authenticator.`;
 
 const WEB_RULES = `You are a Senior React Engineer building a production-grade React + TypeScript + Tailwind CSS app (Vite).
 

@@ -90,6 +90,32 @@ export default function Bad() { return <div style={{ color: "red" }}>x</div>; }`
     expect(check.passed).toBe(false);
     expect(check.severity).toBe("warning");
   });
+
+  it("counts typed admin.graphql<T> as Admin API usage (no false negative)", () => {
+    const { project, plan } = compliantProject();
+    const idx = project.files.findIndex((f) => f.path === "app/routes/app._index.tsx");
+    // Replace the route with a typed GraphQL call — the template's generated
+    // operation helpers use `admin.graphql<OperationType>(...)`, which the old
+    // `admin.graphql\s*\(` regex missed.
+    project.files[idx] = {
+      path: "app/routes/app._index.tsx",
+      content: `import { authenticate } from "../shopify.server";
+import { Page } from "@shopify/polaris";
+import type { ProductsQuery } from "../lib/queries";
+export const loader = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
+  const r = await admin.graphql<ProductsQuery>(\`#graphql
+    query Products { products(first: 1) { nodes { id } } }
+  \`);
+  return r;
+};
+export default function Index() { return <Page>hi</Page>; }`,
+    };
+    const report = runCompliance(project, plan);
+    const check = report.checks.find((c) => c.id === "admin_api_usage")!;
+    expect(check.passed).toBe(true);
+    expect(report.passed).toBe(true);
+  });
 });
 
 describe("complianceSummary", () => {

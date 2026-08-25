@@ -101,7 +101,9 @@ export function runCompliance(
   });
 
   // 6. At least one route reads store data via the Admin API.
-  const usesAdminApi = files.some((f) => /admin\.graphql\s*\(/.test(f.content));
+  //    Matches both `admin.graphql(...)` and the typed form `admin.graphql<ProductQuery>(...)`
+  //    (React Router template uses typed GraphQL operation helper functions).
+  const usesAdminApi = files.some((f) => /admin\.graphql(?:<[^>]*>)?\s*\(/.test(f.content));
   checks.push({
     id: "admin_api_usage",
     label: "Reads store data via the Admin GraphQL API",

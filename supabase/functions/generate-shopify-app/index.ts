@@ -11,7 +11,7 @@ import {
   checkUserQuota, checkAnonQuota, checkMonthlySpend, recordGeneration, recordAnonGeneration, isBurstLimited,
 } from "../_shared/quota.ts";
 import { providerAllowed } from "../_shared/plan-limits.ts";
-import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION } from "../_shared/shopify.ts";
+import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION, FORBIDDEN_IMPORT_SPECS, findForbiddenImports } from "../_shared/shopify.ts";
 import {
   getShopifyScaffoldFiles, getSelectedPolarisPatterns, scaffoldPaths,
   getAdminExtensionFiles, normalizeAdminBlock, ADMIN_EXTENSION_TARGETS,
@@ -141,12 +141,19 @@ const ENGINEER_PROMPT = `You are a Senior Shopify App Engineer building a produc
 Hard rules (violations cause automated rejection):
 1. TypeScript strict — no \`any\`, no \`// @ts-ignore\`.
 2. EVERY route loader/action authenticates: \`const { admin, session } = await authenticate.admin(request);\` (import { authenticate } from "../shopify.server"). Never read store data without authenticating.
-3. ALL store data comes from the Admin GraphQL API via \`admin.graphql(\\\`#graphql ...\\\`, { variables })\` inside loaders/actions — never hardcode catalog data.
+3. ALL store data comes from the Admin GraphQL API via \`admin.graphql(\`#graphql ...\`, { variables })\` inside loaders/actions — never hardcode catalog data.
 4. UI uses ONLY @shopify/polaris components (Page, Card, Layout, IndexTable, BlockStack, Text, Button, etc.). No raw HTML layout, no inline styles, no Tailwind.
 5. App-owned data uses Prisma, always scoped by \`shop\` (from session.shop).
 6. Mutations/forms use React Router <Form>/useFetcher + route actions. Show the App Bridge save bar for dirty forms.
 7. Provide an empty state for every index/list screen.
 8. Follow the Polaris pattern recipes provided.
+9. IMPORT WHITELIST — this template installs ONLY these packages, so every import you write MUST come from exactly them:
+   react, react-dom, react-router, @react-router/node, @react-router/serve, @react-router/fs-routes,
+   @react-router/dev, @shopify/polaris, @shopify/app-bridge-react, @shopify/shopify-app-react-router,
+   @shopify/shopify-app-session-storage-prisma, @prisma/client, prisma, isbot,
+   @types/react, @types/react-dom, @types/node (type-only), plus relative imports (../, ./).
+   FORBIDDEN — these are NOT installed and will break \`shopify app dev\` with a module-not-found error. NEVER import them: ${FORBIDDEN_IMPORT_SPECS.join(", ")}.
+   Use \`import { authenticate } from "../shopify.server"\` (already injected) — do NOT import a separate session/authenticator.
 
 # prisma/schema.prisma — YOU MUST GENERATE THIS and it MUST include this exact Session model plus your app models:
 datasource db { provider = "sqlite"; url = env("DATABASE_URL") }
@@ -285,6 +292,12 @@ function validateProject(project: ShopifyProject): { errors: string[]; warnings:
     }
     if (/\bTODO\b|placeholder|not implemented/i.test(f.content)) {
       warnings.push(`${f.path}: may contain placeholder/TODO content`);
+    }
+    // Compile-viability hard gate: the react-router template installs only the
+    // whitelisted packages; a legacy Remix/AppBridge import breaks `shopify app dev`.
+    const forbidden = findForbiddenImports(f.content);
+    if (forbidden.length) {
+      errors.push(`${f.path}: imports non-installed package (${forbidden.join(", ")}) — will not compile; use ${FORBIDDEN_IMPORT_SPECS.length} whitelisted packages`);
     }
   }
   return { errors, warnings };
@@ -489,6 +502,9 @@ Deno.serve(async (req: Request) => {
         const validation = validateProject(project);
         if (validation.errors.length) {
           enqueue("progress", { phase: "generating", message: `${tag} validation: ${validation.errors.join("; ")}`, percent: 60 });
+          // Fail-closed: never deliver an app that won't compile. Disabled the
+          // previous behavior where errors were logged but the app was still shipped.
+          throw new Error(`Generated app will not compile: ${validation.errors.join("; ")}`);
         }
 
         // Deterministic Built-for-Shopify compliance gate + submission kit.

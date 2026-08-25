@@ -8,7 +8,7 @@
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
 import {
   adminClient, resolveUserId, clientIp, hashIp,
-  checkUserQuota, checkAnonQuota, recordGeneration, recordAnonGeneration, isBurstLimited,
+  checkUserQuota, checkAnonQuota, checkMonthlySpend, recordGeneration, recordAnonGeneration, isBurstLimited,
 } from "../_shared/quota.ts";
 import { providerAllowed } from "../_shared/plan-limits.ts";
 import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION } from "../_shared/shopify.ts";
@@ -366,6 +366,18 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Monthly AI spend cap (cost guard). Blocks before any model call so a
+  // subscriber can't run an unbounded monthly bill, regardless of build quota.
+  if (userId) {
+    const est = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
+    const spend = await checkMonthlySpend(supabase, userId, userPlan, est);
+    if (!spend.allowed) {
+      return new Response(JSON.stringify({ error: `Monthly AI spend cap reached ($${spend.spent.toFixed(2)} of $${spend.limit}). Upgrade your plan or try again next month.` }), {
+        status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   if (!providerAllowed(provider, userPlan)) {
     return new Response(JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -379,7 +391,6 @@ Deno.serve(async (req: Request) => {
 
   const models = DEFAULT_MODELS[provider];
   const modelUsed = models.engineer;
-  const costEstimate = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
   const tag = `[${provider}]`;
   const log = createLogger("generate-shopify-app");
   const costGuard = new CostGuard(defaultMaxCost());
@@ -509,7 +520,7 @@ Deno.serve(async (req: Request) => {
           await recordGeneration(supabase, {
             user_id: userId, prompt, app_name: project.appName, bundle_id: resultProject.bundleId,
             summary: project.summary, files: project.files, files_count: project.files.length,
-            status: "success", model_used: modelUsed, cost_usd: costEstimate, target: "shopify",
+            status: "success", model_used: modelUsed, cost_usd: costGuard.total, target: "shopify",
           });
         } else if (ipHash) {
           await recordAnonGeneration(supabase, ipHash);
@@ -561,7 +572,7 @@ Deno.serve(async (req: Request) => {
           costLimited: e instanceof CostLimitError, estCostUsd: costGuard.total, ms: Date.now() - startedAt,
         });
         if (userId) {
-          await recordGeneration(supabase, { user_id: userId, prompt, status: "failed", model_used: modelUsed, target: "shopify" });
+          await recordGeneration(supabase, { user_id: userId, prompt, status: "failed", model_used: modelUsed, cost_usd: costGuard.total, target: "shopify" });
         }
         enqueue("error", { message: msg });
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));

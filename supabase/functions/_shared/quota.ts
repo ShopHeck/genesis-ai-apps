@@ -9,7 +9,7 @@
 // IPs are never stored in the clear — they are HMAC-hashed with ANON_IP_SALT.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { ANON_MONTHLY_LIMIT, decideQuota, type QuotaDecision } from "./plan-limits.ts";
+import { ANON_MONTHLY_LIMIT, decideQuota, planSpendLimit, type QuotaDecision } from "./plan-limits.ts";
 
 export type SupabaseClient = ReturnType<typeof createClient>;
 
@@ -55,6 +55,32 @@ export async function checkUserQuota(supabase: SupabaseClient, userId: string): 
     supabase.rpc("count_monthly_generations", { p_user_id: userId }),
   ]);
   return decideQuota(planData as string | null, (usedData as number) ?? 0);
+}
+
+// ─── Monthly AI spend cap (cost guard, not quota) ─────────────────────────
+// Prevents a single subscriber (e.g. Studio = "unlimited" generations) from
+// running up an unbounded model bill in a month. Sums the REAL recorded cost
+// (cost_usd) for the current calendar month and blocks a request whose estimated
+// cost would push the user past their plan's ceiling.
+export async function checkMonthlySpend(
+  supabase: SupabaseClient,
+  userId: string,
+  plan: string | null | undefined,
+  estimatedCostUsd: number,
+): Promise<{ allowed: boolean; spent: number; limit: number }> {
+  const limit = planSpendLimit(plan);
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  const { data } = await supabase
+    .from("generations")
+    .select("cost_usd")
+    .eq("user_id", userId)
+    .gte("created_at", start.toISOString());
+  const rows = (data ?? []) as Array<{ cost_usd?: unknown }>;
+  const spent = rows.reduce((sum: number, row) => sum + (Number(row?.cost_usd) || 0), 0);
+  const next = spent + Math.max(0, estimatedCostUsd);
+  return { allowed: next <= limit, spent, limit };
 }
 
 // ─── Anonymous quota (durable, per-IP per-month) ─────────────────────────

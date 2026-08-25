@@ -35,11 +35,13 @@ export function RefinementChat({
   project,
   prompt,
   provider,
+  target,
   onProjectUpdate,
 }: {
   project: Project;
   prompt: string;
   provider: "gemini" | "anthropic" | "opencode";
+  target: "shopify" | "web";
   onProjectUpdate: (project: Project) => void;
 }) {
   const { user, plan } = useAuth();
@@ -85,30 +87,23 @@ export function RefinementChat({
     setLoading(true);
 
     try {
-      const fileSummaries = project.files
-        .map((f) => `- ${f.path} (${f.content.split("\n").length} lines)`)
-        .join("\n");
-
+      // Target-aware conversational rebuild (refine-project), not the broken
+      // single-file Swift path. Sends the current project so only changed files
+      // come back; the client preserves the rest.
       const { data, error: fnErr } = await supabase.functions.invoke(
-        "regenerate-file",
+        "refine-project",
         {
           body: {
-            filePath: "__refinement__",
-            currentContent: JSON.stringify({
-              files: project.files.map((f) => ({
-                path: f.path,
-                content: f.content,
-              })),
-            }),
+            target,
             prompt,
             appContext: {
               appName: project.appName,
               summary: project.summary,
               bundleId: project.bundleId,
-              fileManifest: fileSummaries,
             },
             instruction: msg,
             provider,
+            files: project.files.map((f) => ({ path: f.path, content: f.content })),
           },
         },
       );
@@ -116,21 +111,8 @@ export function RefinementChat({
       if (fnErr) throw new Error(fnErr.message);
       if (data?.error) throw new Error(data.error);
 
-      const content = data?.content ?? "";
-      let patchedFiles: { path: string; content: string }[] = [];
-      let responseText = "";
-
-      try {
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          patchedFiles = parsed;
-        } else if (parsed.files && Array.isArray(parsed.files)) {
-          patchedFiles = parsed.files;
-          responseText = parsed.summary ?? "";
-        }
-      } catch {
-        responseText = content.slice(0, 500);
-      }
+      const patchedFiles: { path: string; content: string }[] = data?.files ?? [];
+      const responseText = data?.summary ?? "";
 
       if (patchedFiles.length > 0) {
         const updatedFiles = project.files.map((f) => {

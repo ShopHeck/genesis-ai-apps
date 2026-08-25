@@ -138,6 +138,7 @@ export default function Generator() {
           prompt: lastPromptUsed,
           appContext: { appName: project.appName, summary: project.summary },
           provider,
+          target,
         },
       });
       if (fnErr) throw new Error(fnErr.message);
@@ -677,6 +678,7 @@ export default function Generator() {
                     project={project}
                     prompt={lastPromptUsed}
                     provider={provider}
+                    target={target}
                     onProjectUpdate={(updated) => {
                       generation.setProject(updated);
                       setSelectedFile(updated.files[0]?.path ?? null);

@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   Eye,
   Code2,
+  Github,
   Layers,
   Terminal,
 } from "lucide-react";
@@ -59,6 +60,7 @@ export default function Generator() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [regeneratingFile, setRegeneratingFile] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [resultTab, setResultTab] = useState<"preview" | "code" | "details">("preview");
 
   const generation = useGeneration();
@@ -159,6 +161,34 @@ export default function Generator() {
     const files = project.files.map((f) => ({ path: f.path, content: editedFiles.get(f.path) ?? f.content }));
     await downloadZip(project.appName, files);
     toast.success("Project downloaded");
+  };
+
+  const handleExportGithub = async () => {
+    if (!project) return;
+    if (!user) { setShowAuth(true); return; }
+    if (plan === "free") {
+      toast.error("GitHub export requires a Pro or Studio plan.");
+      return;
+    }
+    setExporting(true);
+    try {
+      const files = project.files.map((f) => ({ path: f.path, content: editedFiles.get(f.path) ?? f.content }));
+      const { data, error: fnErr } = await supabase.functions.invoke("export-to-github", {
+        body: { appName: project.appName, files, target },
+      });
+      if (fnErr) throw new Error(fnErr.message);
+      if (data?.error) throw new Error(data.error);
+      if (data?.repoUrl) {
+        toast.success("Pushed to GitHub", { description: data.repoUrl });
+        window.open(data.repoUrl, "_blank", "noopener");
+      } else {
+        throw new Error("No repo URL returned");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const tree = project ? buildTree(project.files) : null;
@@ -525,14 +555,27 @@ export default function Generator() {
                     )}
                   </p>
                 </div>
-                <Button
-                  onClick={handleDownload}
-                  size="lg"
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)]"
-                >
-                  <Download size={16} />
-                  Download .zip
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleExportGithub}
+                    variant="outline"
+                    size="lg"
+                    className="border-border/60 hover:border-primary/40"
+                    disabled={exporting}
+                    title="Create a GitHub repo for this project (Pro+)"
+                  >
+                    {exporting ? <Loader2 size={16} className="animate-spin" /> : <Github size={16} />}
+                    Export to GitHub
+                  </Button>
+                  <Button
+                    onClick={handleDownload}
+                    size="lg"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-md)]"
+                  >
+                    <Download size={16} />
+                    Download .zip
+                  </Button>
+                </div>
               </div>
 
               {/* Tab Bar */}

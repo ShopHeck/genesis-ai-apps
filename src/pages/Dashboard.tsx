@@ -56,15 +56,35 @@ export default function Dashboard() {
   const [billingLoading, setBillingLoading] = useState(false);
   const [generations, setGenerations] = useState<GenerationRecord[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [monthSpend, setMonthSpend] = useState(0);
 
   useEffect(() => {
     if (!authLoading && !user) {
       setShowAuth(true);
     } else if (user) {
       fetchGenerations();
+      fetchMonthSpend();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading]);
+
+  async function fetchMonthSpend() {
+    if (!user) return;
+    try {
+      const start = new Date();
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from("generations")
+        .select("cost_usd")
+        .eq("user_id", user.id)
+        .gte("created_at", start.toISOString());
+      const sum = (data ?? []).reduce((s: number, r: { cost_usd?: unknown }) => s + (Number(r.cost_usd) || 0), 0);
+      setMonthSpend(sum);
+    } catch {
+      // non-fatal; cost display is informational
+    }
+  }
 
   async function fetchGenerations() {
     setLoadingData(true);
@@ -194,6 +214,11 @@ export default function Dashboard() {
                 {" "}/ {limit === Infinity ? "∞" : limit} builds this month
               </span>
             </p>
+            {monthSpend > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                ~${monthSpend.toFixed(2)} AI spend this month
+              </p>
+            )}
             {limit !== Infinity && (
               <div className="mt-2 w-48 h-1.5 bg-border/60 rounded-full overflow-hidden">
                 <div

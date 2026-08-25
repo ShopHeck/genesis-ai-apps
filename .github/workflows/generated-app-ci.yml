@@ -1,0 +1,23 @@
+name: Generated App CI
+
+# Guard rail against model drift: periodically type-check and lint a sample of
+# committed generated apps. If the generator starts emitting code that no longer
+# compiles (e.g. a new Admin API version, a template shake-up), this fails loudly
+# before it reaches users. Seed samples with scripts/seed-sample.sh and read
+# samples/README.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+
+jobs:
+  verify-samples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Typecheck + lint each committed sample app
+        run: bash scripts/sample-ci.sh

@@ -189,7 +189,14 @@ app/shopify.server.ts, app/db.server.ts, app/root.tsx, app/entry.server.tsx,
 app/routes/app.tsx (the shell with AppProvider + NavMenu), app/routes/auth.$.tsx,
 app/routes/webhooks.*.tsx, shopify.app.toml, .gitignore, .env.example.
 
-Every file must be COMPLETE and runnable on \`shopify app dev\`. No TODOs, no stubs, no placeholders. Prefer fewer complete files over many incomplete ones.`;
+# PRODUCTION QUALITY — your output ships to real merchants, so:
+- Every screen you emit is a COMPLETE, polished Polaris page driven by a real loader: it fetches data, renders it, AND handles loading (Skeleton/Spinner), empty, and error states. Never a static shell, a "coming soon" placeholder, or a screen that renders nothing.
+- The loader's returned data is actually rendered — no dead code, no unused variables, no screen that fetches data and ignores it.
+- Mutations write via route actions + useFetcher/<Form> and then invalidate/revalidate the loader so the UI reflects the change immediately.
+- Prefer 3-5 fully polished screens over many thin ones. A tight, complete app beats a broad, half-finished one — the reviewer checks that every planned screen is implemented with real behavior.
+- No console.log, no debugger, no commented-out code left in the deliverable.
+
+Every file must be COMPLETE and runnable on \`shopify app dev\`. No TODOs, no stubs, no placeholders.`;
 
 const TOOL_PROJECT: AITool = {
   name: "emit_shopify_project",
@@ -214,15 +221,25 @@ const TOOL_PROJECT: AITool = {
 };
 
 // ─── Reviewer ──────────────────────────────────────────────────────────────
-const REVIEWER_PROMPT = `You are a Built for Shopify reviewer. Score the generated embedded app 0-100 across:
-- Auth correctness: every loader/action calls authenticate.admin (no unauthenticated data access)
-- Polaris compliance: UI uses Polaris components, no raw HTML layout / inline styles
-- Admin API usage: store data fetched via admin.graphql, not hardcoded
-- Scope minimization: only necessary scopes, protected-data scopes justified
-- Completeness: every planned screen implemented with real behavior + empty states
-- Prisma correctness: Session model present, app data scoped by shop
+const REVIEWER_PROMPT = `You are the final Built for Shopify reviewer before a generated app ships to a real merchant. Judge whether it is PRODUCTION-READY — something an installed merchant could rely on today — not merely "well-formed."
 
-If score < 70, list the worst issues. Call emit_shopify_review.`;
+Score 0-100, strict. A merchant-facing defect (broken screen, dead data, no empty state, unauthenticated data access, non-compiling import) is a failure, not a nit.
+
+Weighted dimensions:
+- Auth correctness (20): every loader/action calls authenticate.admin; zero unauthenticated data access.
+- Real screen behavior (25): every planned screen renders loader-driven data with loading, empty, and error states; mutations round-trip and revalidate; no hardcoded store data, no dead/ignored data, no "coming soon" shells.
+- Polaris/UI completeness (15): Polaris-only, no inline styles/raw HTML, consistent spacing, usable empty states.
+- Data correctness (20): Admin GraphQL operations correct and typed; Prisma models include the Session model and are scoped by shop; no undefined queries.
+- Scope minimization (10): minimal scopes, protected-data scopes justified.
+- Build cleanliness (10): no non-installed imports (@remix-run/*, @shopify/shopify-app-remix/*, bare @shopify/app-bridge), TypeScript strict, no TODOs/stubs/console.log.
+
+You will be given the deterministic compliance score — do NOT contradict it on the structural checks it already verified; ADD the deeper production-readiness judgment it cannot see (real behavior, completeness, polish).
+
+Thresholds:
+- >= 70 -> verdict "pass" (merchant-ready).
+- < 70 -> verdict "needs_refinement" and list the 3-5 HIGHEST-IMPACT fixes only. For each: exact file path, severity (error|warning), a one-line message, and a concrete fix the engineer can apply directly. The refiner patches exactly these files.
+
+Call emit_shopify_review with { score, verdict, issues }.`;
 
 const TOOL_REVIEW: AITool = {
   name: "emit_shopify_review",
@@ -268,7 +285,7 @@ function sseEvent(type: string, payload: Record<string, unknown>): string {
 interface ProjectFile { path: string; content: string }
 interface ShopifyProject { appName: string; summary: string; files: ProjectFile[] }
 
-function validateProject(project: ShopifyProject): { errors: string[]; warnings: string[] } {
+function validateProject(project: ShopifyProject, plan?: Record<string, unknown>): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
   const byPath = new Map(project.files.map((f) => [f.path, f.content]));
@@ -282,6 +299,19 @@ function validateProject(project: ShopifyProject): { errors: string[]; warnings:
     errors.push("prisma/schema.prisma is missing the required Session model.");
   }
 
+  // Production-completeness: a bloated plan that produces truncated screens is the
+  // single biggest quality failure, so compare the plan's screen count against the
+  // number of app route files that actually came back. Count-based (not exact path)
+  // so a sensible file rename doesn't falsely fail the build; a big shortfall is a
+  // real "the app is half-built" signal.
+  const plannedScreens = Array.isArray(plan?.screens) ? (plan.screens as { route?: string; name?: string }[]) : [];
+  if (plannedScreens.length > 0) {
+    const implementedRoutes = project.files.filter((f) => /^app\/routes\/app\..*\.tsx$/.test(f.path)).map((f) => f.path);
+    if (implementedRoutes.length < plannedScreens.length) {
+      warnings.push(`Completeness: plan declares ${plannedScreens.length} screen(s) but ${implementedRoutes.length} app route file(s) were generated — screens may be missing`);
+    }
+  }
+
   // Every app route should authenticate before touching store data.
   for (const f of project.files) {
     if (/^app\/routes\/app\..*\.tsx$/.test(f.path)) {
@@ -292,6 +322,14 @@ function validateProject(project: ShopifyProject): { errors: string[]; warnings:
     }
     if (/\bTODO\b|placeholder|not implemented/i.test(f.content)) {
       warnings.push(`${f.path}: may contain placeholder/TODO content`);
+    }
+    // Screen routes must actually render — a route with no default component is dead UI.
+    if (/^app\/routes\/app\..*\.tsx$/.test(f.path) && !/export\s+default\s+(?:async\s+)?function/.test(f.content)) {
+      warnings.push(`${f.path}: screen route has no default-exported component (won't render)`);
+    }
+    // Production hygiene: no debug prints left in a merchant-facing deliverable.
+    if (/\bconsole\.(log|debug|info)\b|\bdebugger\b/.test(f.content)) {
+      warnings.push(`${f.path}: contains console.log/debugger — remove for production`);
     }
     // Compile-viability hard gate: the react-router template installs only the
     // whitelisted packages; a legacy Remix/AppBridge import breaks `shopify app dev`.
@@ -499,7 +537,10 @@ Deno.serve(async (req: Request) => {
         ];
         const project: ShopifyProject = { appName: raw.appName ?? (plan.appName as string), summary: raw.summary ?? "", files: merged };
 
-        const validation = validateProject(project);
+        const validation = validateProject(project, plan as Record<string, unknown>);
+        if (validation.warnings.length) {
+          enqueue("progress", { phase: "generating", message: `${tag} validation: ${validation.warnings.join("; ")}`, percent: 60 });
+        }
         if (validation.errors.length) {
           enqueue("progress", { phase: "generating", message: `${tag} validation: ${validation.errors.join("; ")}`, percent: 60 });
           // Fail-closed: never deliver an app that won't compile. Disabled the
@@ -542,40 +583,81 @@ Deno.serve(async (req: Request) => {
           await recordAnonGeneration(supabase, ipHash);
         }
 
-        // Deferred review + single refinement pass (cost-capped).
+        // Deferred review + single refinement pass (cost-capped). The reviewer
+        // gets the WHOLE app (not a truncated slice) plus the deterministic
+        // compliance result and the merchant's acceptance criteria, so its verdict
+        // is aligned and its fixes are concrete. A sub-70 app is then repaired
+        // using the FULL content of the exact files the reviewer flagged (a
+        // truncated slice is why earlier refines returned nothing), and the
+        // patched output is RE-VALIDATED so a regression is never shipped.
+        const complianceText = complianceSummary(compliance);
         try {
-          const manifest = project.files.slice(0, 12).map((f) => `// === ${f.path} ===\n${f.content.slice(0, 1500)}`).join("\n\n");
+          const manifest = project.files.map((f) => `// === ${f.path} ===\n${f.content}`).join("\n\n");
+          const criteria = (Array.isArray(plan.acceptanceCriteria) ? plan.acceptanceCriteria : []).join("\n- ");
           const reviewer = await callWithFallback({
             provider, apiKey, model: models.reviewer, system: REVIEWER_PROMPT, role: "reviewer", costGuard,
-            userMessage: `Review this Shopify embedded app:\n\n${manifest}`,
-            tool: TOOL_REVIEW, maxTokens: 4000, timeoutMs: 60_000, enqueue,
+            userMessage:
+              `Review this Shopify embedded app:\n\n${manifest}\n\n` +
+              `Deterministic Built-for-Shopify readiness (internal check): ${complianceText}\n\n` +
+              `Merchant acceptance criteria:\n- ${criteria}\n\n` +
+              `Judge PRODUCTION-READINESS. If score < 70, list the 3-5 highest-impact fixes with exact file paths and concrete changes.`,
+            tool: TOOL_REVIEW, maxTokens: 6000, timeoutMs: 90_000, enqueue,
           });
           const review = reviewer.toolArgs as { score: number; verdict: string; issues: { file?: string; message?: string; fix?: string }[] } | undefined;
-          if (review) {
-            enqueue("progress", { phase: "reviewing", message: `[reviewer] Built-for-Shopify readiness score: ${review.score}/100 — ${review.verdict}`, percent: -1 });
-            if (review.score < 70) {
-              const topIssues = (review.issues ?? []).slice(0, 4).map((i) => `• [${i.file ?? "general"}] ${i.message ?? ""}${i.fix ? `\n  Fix: ${i.fix}` : ""}`).join("\n");
-              const refiner = await callWithFallback({
-                provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT, role: "engineer", costGuard,
-                userMessage: `The app scored ${review.score}/100. Fix these issues:\n${topIssues}\n\nCurrent files:\n${manifest}\n\nReturn only the PATCHED files.`,
-                tool: TOOL_PATCH, maxTokens: 32000, timeoutMs: 120_000, enqueue,
-              });
-              const patches = refiner.toolArgs?.files as ProjectFile[] | undefined;
-              if (patches?.length) {
-                const files = [...project.files];
-                for (const p of patches) {
-                  if (reserved.has(p.path)) continue;
-                  const idx = files.findIndex((f) => f.path === p.path);
-                  if (idx >= 0) files[idx] = p; else files.push(p);
-                }
-                enqueue("patch", { files, reviewScore: review.score, autoRefined: true, beforeScore: review.score });
-              }
+          if (!review) throw new Error("Reviewer returned no verdict.");
+          enqueue("progress", { phase: "reviewing", message: `[reviewer] Built-for-Shopify readiness score: ${review.score}/100 — ${review.verdict}`, percent: -1 });
+
+          if (review.score < 70) {
+            // Refiner context = FULL content of the files the reviewer flagged,
+            // PLUS every screen route, the typed data layer, and the schema — a
+            // truncated slice is why earlier refines returned nothing, and fixing
+            // a screen usually touches a supporting file too.
+            const flagged = (review.issues ?? []).map((i) => i.file).filter(Boolean) as string[];
+            const support = project.files
+              .filter((f) => /^app\/routes\/app\..*\.tsx$/.test(f.path) || /^app\/lib\//.test(f.path) || f.path === "prisma/schema.prisma")
+              .map((f) => f.path);
+            const paths = [...new Set([...flagged, ...support])];
+            const refContext = paths.map((p) => {
+              const f = project.files.find((x) => x.path === p);
+              return f ? `// === ${f.path} ===\n${f.content}` : null;
+            }).filter(Boolean).join("\n\n");
+            const topIssues = (review.issues ?? []).slice(0, 5).map((i) => `• [${i.file ?? "general"}] ${i.message ?? ""}${i.fix ? `\n  Fix: ${i.fix}` : ""}`).join("\n");
+            const refiner = await callWithFallback({
+              provider, apiKey, model: models.engineer, system: ENGINEER_PROMPT, role: "engineer", costGuard,
+              userMessage:
+                `The app scored ${review.score}/100 — needs refinement. Fix these issues:\n${topIssues}\n\n` +
+                `Full contents of the files to change (only these are shown; keep your changes inside them):\n${refContext}\n\n` +
+                `Hard rules still apply — NEVER import ${FORBIDDEN_IMPORT_SPECS.join(", ")}; TypeScript strict; return complete files, not diffs.\n\n` +
+                `Return ONLY the fully-patched files that fix the issues. Do not return a file if no change is needed.`,
+              tool: TOOL_PATCH, maxTokens: 50000, timeoutMs: 150_000, enqueue,
+            });
+            const patches = refiner.toolArgs?.files as ProjectFile[] | undefined;
+            if (!patches?.length) {
+              enqueue("progress", { phase: "reviewing", message: "[refine] refinement produced no changes — delivering the original build", percent: -1 });
             } else {
-              enqueue("review", { reviewScore: review.score });
+              const refined = [...project.files];
+              for (const p of patches) {
+                if (reserved.has(p.path)) continue;
+                const idx = refined.findIndex((f) => f.path === p.path);
+                if (idx >= 0) refined[idx] = p; else refined.push(p);
+              }
+              // Re-gate: never emit a patch that regresses compile/validation.
+              const refinedProject: ShopifyProject = { appName: project.appName, summary: project.summary, files: refined };
+              const reValidation = validateProject(refinedProject, plan as Record<string, unknown>);
+              if (reValidation.errors.length) {
+                enqueue("progress", { phase: "reviewing", message: `[refine] refinement would break validation (${reValidation.errors.join("; ")}) — keeping the original build`, percent: -1 });
+              } else {
+                const reCompliance = runCompliance(refinedProject, plan as Record<string, unknown>);
+                enqueue("patch", { files: refined, reviewScore: review.score, autoRefined: true, beforeScore: review.score, compliance: reCompliance });
+                enqueue("progress", { phase: "reviewing", message: `[refine] ${complianceSummary(reCompliance)}`, percent: -1 });
+              }
             }
+          } else {
+            enqueue("review", { reviewScore: review.score, compliance: compliance });
           }
         } catch (e) {
           log.warn("review.failed", { error: e instanceof Error ? e.message : String(e) });
+          enqueue("progress", { phase: "reviewing", message: "[reviewer] advisory review skipped", percent: -1 });
         }
 
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));

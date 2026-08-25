@@ -56,23 +56,44 @@ export default function Dashboard() {
   const [billingLoading, setBillingLoading] = useState(false);
   const [generations, setGenerations] = useState<GenerationRecord[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [monthSpend, setMonthSpend] = useState(0);
 
   useEffect(() => {
     if (!authLoading && !user) {
       setShowAuth(true);
     } else if (user) {
       fetchGenerations();
+      fetchMonthSpend();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading]);
+
+  async function fetchMonthSpend() {
+    if (!user) return;
+    try {
+      const start = new Date();
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from("generations")
+        .select("cost_usd")
+        .eq("user_id", user.id)
+        .gte("created_at", start.toISOString());
+      const sum = (data ?? []).reduce((s: number, r: { cost_usd?: unknown }) => s + (Number(r.cost_usd) || 0), 0);
+      setMonthSpend(sum);
+    } catch {
+      // non-fatal; cost display is informational
+    }
+  }
 
   async function fetchGenerations() {
     setLoadingData(true);
     try {
       const { data, error } = await supabase
         .from("generations")
-        .select("id, app_name, bundle_id, summary, prompt, files_count, files, model_used, status, created_at, target, review_score, parent_generation_id")
+        .select("id, app_name, bundle_id, summary, prompt, files_count, model_used, status, created_at, target, review_score, parent_generation_id")
         .eq("user_id", user!.id)
+        .eq("kind", "build")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -106,12 +127,27 @@ export default function Dashboard() {
   };
 
   const handleReDownload = async (gen: GenerationRecord) => {
-    if (!gen.files || gen.files.length === 0) {
+    // File contents are no longer embedded in the list query (that was a
+    // multi-MB payload on every dashboard load). Fetch them lazily, once.
+    let files = gen.files;
+    if (!files || files.length === 0) {
+      const { data, error } = await supabase
+        .from("generations")
+        .select("files")
+        .eq("id", gen.id)
+        .maybeSingle();
+      if (error) {
+        toast.error("Failed to load project files");
+        return;
+      }
+      files = (data as { files: Array<{ path: string; content: string }> | null } | null)?.files ?? null;
+    }
+    if (!files || files.length === 0) {
       toast.error("Project files not stored — regenerate from Generator");
       return;
     }
     const folderName = gen.app_name ?? "ApexBuild-App";
-    await downloadZip(folderName, gen.files);
+    await downloadZip(folderName, files);
     toast.success("Project downloaded");
   };
 
@@ -179,6 +215,11 @@ export default function Dashboard() {
                 {" "}/ {limit === Infinity ? "∞" : limit} builds this month
               </span>
             </p>
+            {monthSpend > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                ~${monthSpend.toFixed(2)} AI spend this month
+              </p>
+            )}
             {limit !== Infinity && (
               <div className="mt-2 w-48 h-1.5 bg-border/60 rounded-full overflow-hidden">
                 <div
@@ -223,7 +264,7 @@ export default function Dashboard() {
             <Package size={40} className="text-muted-foreground mx-auto mb-4" />
             <h3 className="font-display text-lg font-semibold mb-2">No projects yet</h3>
             <p className="text-muted-foreground text-sm mb-6">
-              Generate your first iOS app and it will appear here.
+              Generate your first app and it will appear here.
             </p>
             <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow-sm)]">
               <Link to="/generator">
@@ -275,12 +316,17 @@ export default function Dashboard() {
                   </span>
                   {gen.model_used && (
                     <span className="flex items-center gap-1">
-                      <Sparkles size={11} /> {gen.model_used.includes("claude") ? "Claude" : "Gemini"}
+                      <Sparkles size={11} />
+                      {gen.model_used.includes("claude") || gen.model_used.includes("anthropic")
+                        ? "Claude"
+                        : gen.model_used.includes("opencode")
+                          ? "Opencode"
+                          : "Gemini"}
                     </span>
                   )}
                   {gen.target && (
                     <Badge variant="outline" className="text-[9px] py-0 h-4">
-                      {gen.target === "web" ? "Web" : "iOS"}
+                      {gen.target === "shopify" ? "Shopify" : gen.target === "web" ? "Web" : "Web"}
                     </Badge>
                   )}
                   {gen.review_score != null && (
@@ -304,7 +350,7 @@ export default function Dashboard() {
                     variant="outline"
                     className="flex-1 border-border/60 hover:border-primary/40 hover:bg-primary/5 text-xs"
                     onClick={() => handleReDownload(gen)}
-                    disabled={!gen.files || gen.files.length === 0}
+                    disabled={!gen.files_count || gen.files_count === 0}
                   >
                     <Download size={13} className="mr-1.5" />
                     Download
@@ -313,7 +359,7 @@ export default function Dashboard() {
                     size="sm"
                     variant="outline"
                     className="border-border/60 hover:border-emerald-400/40 hover:bg-emerald-400/5 text-xs"
-                    onClick={() => navigate(`/generator?regenerate=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "ios"}`)}
+                    onClick={() => navigate(`/generator?regenerate=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "web"}`)}
                     title="Re-generate with same prompt"
                   >
                     <RefreshCw size={13} />
@@ -322,7 +368,7 @@ export default function Dashboard() {
                     size="sm"
                     variant="outline"
                     className="border-border/60 hover:border-violet-400/40 hover:bg-violet-400/5 text-xs"
-                    onClick={() => navigate(`/generator?remix=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "ios"}`)}
+                    onClick={() => navigate(`/generator?remix=${gen.id}&prompt=${encodeURIComponent(gen.prompt)}&target=${gen.target ?? "web"}`)}
                     title="Remix — modify this app's prompt"
                   >
                     <Pencil size={13} />

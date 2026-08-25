@@ -1,30 +1,33 @@
-// Regenerates a single file within a generated project using AI
-// POST body: { filePath, currentContent, prompt, appContext }
+// Regenerates a single file within a generated project using AI.
+// Target-aware: produces code for the Shopify (React Router + Polaris + Prisma)
+// or web (React + Tailwind) target, inferred from the file path's extension.
+// Replaces the removed SwiftUI/Swift 6 iOS prompt that never matched the product.
+//
+// POST body: { filePath, currentContent, prompt, appContext, instruction, provider, target }
 // Returns: { content: string }
 // Available to Pro+ users only.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
+import { codeAssistantRules, languageForPath, normalizeTarget } from "../_shared/code-prompts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are a Principal iOS Engineer specializing in SwiftUI and Swift 6. You are given:
-1. The original app prompt that describes what the user wanted to build
-2. Context about the app (app name, summary)
-3. A specific file path and its current content
-4. An optional instruction about what to change
+function systemPrompt(target: "shopify" | "web"): string {
+  return `You are an expert file refactorer specializing in the ${target === "shopify" ? "Shopify embedded-admin" : "React + Tailwind web"} stack.
 
-Your task is to produce an improved or corrected version of that single file.
+${codeAssistantRules(target)}
 
-Rules:
-- Output ONLY the complete file content — no markdown fences, no explanation, no preamble
-- The file must compile under Swift 6 strict concurrency
-- Maintain consistency with the rest of the project (use @Observable, SwiftData, NavigationStack, etc.)
-- If no specific change instruction is given, improve the file's code quality, design, and completeness
-- Never truncate — always return the complete file`;
+You will be given ONE existing file and an optional change instruction. If a change instruction
+is given, apply exactly it; otherwise improve the file's quality, completeness, correctness, and
+design for the target stack (preserving the file's purpose, exports, and route/component contract).
+
+Output ONLY the complete, improved file content — no markdown fences, no explanation, no preamble.
+Never truncate; always return the whole file.`;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -52,17 +55,17 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Plan check — Pro+ only
+  // Plan check — Pro+ only (fail closed: an RPC error or unknown plan is rejected).
   const adminSupabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: planData } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
-  const plan = (planData as string) ?? "free";
-  if (plan === "free") {
+  const { data: planData, error: planErr } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
+  const plan = (planData as string) ?? null;
+  if (planErr || (plan !== "pro" && plan !== "studio")) {
     return new Response(JSON.stringify({ error: "File regeneration requires a Pro or Studio plan. Upgrade at /pricing." }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  const { filePath, currentContent, prompt, appContext, instruction, provider: rawProvider } = await req.json();
+  const { filePath, currentContent, prompt, appContext, instruction, provider: rawProvider, target: rawTarget } = await req.json();
   if (!filePath || !currentContent) {
     return new Response(JSON.stringify({ error: "filePath and currentContent are required" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,8 +73,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const provider: Provider = ["gemini", "anthropic", "opencode"].includes(rawProvider) ? rawProvider : "gemini";
-  // Premium providers are Studio-only — mirror the gate in generate-ios-app
-  // so Pro users can't force anthropic/opencode and bypass tier monetization.
+  // Premium providers are Studio-only — mirror the gate so Pro users can't force
+  // anthropic/opencode and bypass tier monetization.
   if (provider !== "gemini" && plan !== "studio") {
     return new Response(
       JSON.stringify({ error: `${provider === "anthropic" ? "Claude" : "Opencode Zen"} requires the Studio plan. Upgrade at /pricing.` }),
@@ -85,14 +88,17 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const userMessage = `App prompt: "${prompt}"
+  const target = normalizeTarget(rawTarget);
+  const language = languageForPath(filePath);
+
+  const userMessage = `Original app idea: "${prompt}"
 App context: ${JSON.stringify(appContext)}
 
-File to regenerate: ${filePath}
+File to regenerate (${language}): ${filePath}
 ${instruction ? `Change instruction: ${instruction}` : "Improve this file's quality, completeness, and design."}
 
 Current file content:
-\`\`\`swift
+\`\`\`
 ${currentContent}
 \`\`\`
 
@@ -103,7 +109,7 @@ Return the complete improved file content now (no markdown, no explanation):`;
       provider,
       apiKey,
       model: DEFAULT_MODELS[provider].engineer,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt(target),
       userMessage,
       maxTokens: 8000,
     });
@@ -111,7 +117,7 @@ Return the complete improved file content now (no markdown, no explanation):`;
     if (!content) throw new Error("AI returned empty content");
 
     // Strip any accidental markdown fences
-    const cleaned = content.replace(/^```\w*\n?/, "").replace(/\n?```$/, "").trim();
+    const cleaned = content.replace(/^```\w*[ \t]*\n?/, "").replace(/\n?```[ \t]*$/, "").trim();
 
     return new Response(JSON.stringify({ content: cleaned }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

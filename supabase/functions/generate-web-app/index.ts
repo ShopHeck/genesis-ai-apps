@@ -6,7 +6,7 @@
 import { callAI, AIError, AITool, DEFAULT_MODELS, FALLBACK_MODELS, getApiKey, Provider, type AICallOptions } from "../_shared/ai.ts";
 import {
   adminClient, resolveUserId, clientIp, hashIp,
-  checkUserQuota, checkAnonQuota, recordGeneration, recordAnonGeneration, isBurstLimited,
+  checkUserQuota, checkAnonQuota, checkMonthlySpend, recordGeneration, recordAnonGeneration, isBurstLimited,
 } from "../_shared/quota.ts";
 import { providerAllowed } from "../_shared/plan-limits.ts";
 import { getSelectedWebPatterns, getScaffoldFiles, WEB_PATTERN_MENU, WEB_COMPONENT_LIBRARY } from "./component-library.ts";
@@ -454,6 +454,18 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Monthly AI spend cap (cost guard). Blocks before any model call.
+  if (userId) {
+    const est = provider === "anthropic" ? 0.30 : provider === "opencode" ? 0.25 : 0.20;
+    const spend = await checkMonthlySpend(supabase, userId, userPlan, est);
+    if (!spend.allowed) {
+      return new Response(
+        JSON.stringify({ error: `Monthly AI spend cap reached ($${spend.spent.toFixed(2)} of $${spend.limit}). Upgrade your plan or try again next month.` }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  }
+
   // Premium providers (Claude / Opencode) are a Studio-tier capability.
   if (!providerAllowed(provider, userPlan)) {
     return new Response(
@@ -695,7 +707,7 @@ Deno.serve(async (req: Request) => {
         const msg = e instanceof AIError ? e.message : (e instanceof Error ? e.message : "Generation failed");
         if (userId) {
           await recordGeneration(supabase, {
-            user_id: userId, prompt, status: "failed", model_used: modelUsed, target: "web",
+            user_id: userId, prompt, status: "failed", model_used: modelUsed, cost_usd: costEstimate, target: "web",
           });
         }
         enqueue("error", { message: msg });

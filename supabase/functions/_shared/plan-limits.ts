@@ -15,6 +15,18 @@ export const PLAN_LIMITS: Record<Plan, number> = {
 // server-side by IP hash (the client-side counter is advisory only).
 export const ANON_MONTHLY_LIMIT = 1;
 
+// Per-user monthly TARGET AI SPEND ceiling (USD). This is a cost guard, not
+// revenue — a single Studio (unlimited generations) subscriber must not be able
+// to run up an unbounded model bill. Generous vs. the input price: a Pro $29/mo
+// can burn at most ~$15 of AI; Studio $99/mo ~$60. Free is a hard $1 so it can't
+// become a vector for laundering compute. Failed generations are also charged
+// (see recordGeneration), so spend is tracked accurately month-over-month.
+export const PLAN_MONTHLY_SPEND_USD: Record<Plan, number> = {
+  free: 1,
+  pro: 15,
+  studio: 60,
+};
+
 // Premium providers (anything other than the default Gemini path) are a
 // Studio-tier capability across every generator.
 export const PREMIUM_PROVIDERS = ["anthropic", "opencode"] as const;
@@ -25,6 +37,12 @@ export function normalizePlan(plan: string | null | undefined): Plan {
 
 export function planLimit(plan: string | null | undefined): number {
   return PLAN_LIMITS[normalizePlan(plan)];
+}
+
+// Monthly AI spend ceiling (USD) for a plan; Infinity-safe default to a large
+// number so an unknown plan can never be blocked inappropriately.
+export function planSpendLimit(plan: string | null | undefined): number {
+  return PLAN_MONTHLY_SPEND_USD[normalizePlan(plan)];
 }
 
 export interface QuotaDecision {

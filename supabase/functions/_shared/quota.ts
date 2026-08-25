@@ -9,7 +9,7 @@
 // IPs are never stored in the clear — they are HMAC-hashed with ANON_IP_SALT.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { ANON_MONTHLY_LIMIT, decideQuota, type QuotaDecision } from "./plan-limits.ts";
+import { ANON_MONTHLY_LIMIT, decideQuota, planSpendLimit, type QuotaDecision } from "./plan-limits.ts";
 
 export type SupabaseClient = ReturnType<typeof createClient>;
 
@@ -57,6 +57,32 @@ export async function checkUserQuota(supabase: SupabaseClient, userId: string): 
   return decideQuota(planData as string | null, (usedData as number) ?? 0);
 }
 
+// ─── Monthly AI spend cap (cost guard, not quota) ─────────────────────────
+// Prevents a single subscriber (e.g. Studio = "unlimited" generations) from
+// running up an unbounded model bill in a month. Sums the REAL recorded cost
+// (cost_usd) for the current calendar month and blocks a request whose estimated
+// cost would push the user past their plan's ceiling.
+export async function checkMonthlySpend(
+  supabase: SupabaseClient,
+  userId: string,
+  plan: string | null | undefined,
+  estimatedCostUsd: number,
+): Promise<{ allowed: boolean; spent: number; limit: number }> {
+  const limit = planSpendLimit(plan);
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  const { data } = await supabase
+    .from("generations")
+    .select("cost_usd")
+    .eq("user_id", userId)
+    .gte("created_at", start.toISOString());
+  const rows = (data ?? []) as Array<{ cost_usd?: unknown }>;
+  const spent = rows.reduce((sum: number, row) => sum + (Number(row?.cost_usd) || 0), 0);
+  const next = spent + Math.max(0, estimatedCostUsd);
+  return { allowed: next <= limit, spent, limit };
+}
+
 // ─── Anonymous quota (durable, per-IP per-month) ─────────────────────────
 export async function hashIp(ip: string): Promise<string> {
   const salt = Deno.env.get("ANON_IP_SALT") ?? "apexbuild-default-salt";
@@ -75,7 +101,10 @@ export async function checkAnonQuota(supabase: SupabaseClient, ipHash: string): 
 export async function recordAnonGeneration(supabase: SupabaseClient, ipHash: string): Promise<void> {
   try {
     await supabase.from("anonymous_generations").insert({ ip_hash: ipHash });
-  } catch { /* metering write is non-fatal */ }
+  } catch (e) {
+    // Metering write is non-fatal, but a silent failure hides an uncounted trial.
+    console.error("[quota] recordAnonGeneration insert failed:", e instanceof Error ? e.message : e);
+  }
 }
 
 // ─── Generation persistence (authenticated history + cost metering) ──────
@@ -91,20 +120,37 @@ export interface GenerationRecord {
   model_used?: string;
   cost_usd?: number;
   target?: string;
+  kind?: "build" | "refine";
 }
 
 export async function recordGeneration(supabase: SupabaseClient, row: GenerationRecord): Promise<void> {
   try {
     await supabase.from("generations").insert(row);
-  } catch { /* metering write is non-fatal — never block the user */ }
+  } catch (e) {
+    // Metering write is non-fatal (never block the user), but if it fails the
+    // generation is NEITHER counted against quota NOR saved to history AND the
+    // monthly spend sum misses it. Log loudly so it's observable.
+    console.error("[quota] recordGeneration insert failed:", e instanceof Error ? e.message : e);
+  }
 }
 
 // ─── In-memory burst limiter (per instance, sliding window) ──────────────
 const BURST_WINDOW_MS = 60_000;
 const BURST_MAX = 5;
+const BURST_MAP_HIGHWATER = 5_000; // bound per-instance memory; prune when exceeded
 const burstHits = new Map<string, number[]>();
 
+// Prune stale keys so a busy instance doesn't grow the map unboundedly.
+function maybeEvictBursts(): void {
+  if (burstHits.size <= BURST_MAP_HIGHWATER) return;
+  const cutoff = Date.now() - BURST_WINDOW_MS;
+  for (const [ip, hits] of burstHits) {
+    if (hits.length === 0 || hits[hits.length - 1] < cutoff) burstHits.delete(ip);
+  }
+}
+
 export function isBurstLimited(ip: string): boolean {
+  maybeEvictBursts();
   const now = Date.now();
   const hits = (burstHits.get(ip) ?? []).filter((t) => now - t < BURST_WINDOW_MS);
   if (hits.length >= BURST_MAX) {

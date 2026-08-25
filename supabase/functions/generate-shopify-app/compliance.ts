@@ -149,8 +149,8 @@ export function runCompliance(
 // Compact one-line summary for the generation stream.
 export function complianceSummary(report: ComplianceReport): string {
   const failed = report.checks.filter((c) => !c.passed);
-  if (failed.length === 0) return `Built for Shopify: ${report.score}/100 · all checks passed`;
+  if (failed.length === 0) return `Built-for-Shopify readiness (internal check): ${report.score}/100 · all checks passed`;
   const errs = failed.filter((c) => c.severity === "error").length;
   const warns = failed.filter((c) => c.severity === "warning").length;
-  return `Built for Shopify: ${report.score}/100 · ${errs} error(s), ${warns} warning(s)`;
+  return `Built-for-Shopify readiness (internal check): ${report.score}/100 · ${errs} error(s), ${warns} warning(s)`;
 }

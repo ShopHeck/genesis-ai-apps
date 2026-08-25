@@ -15,6 +15,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
 };
 
+// Stripe signs with SHA-256 HMAC over `${timestamp}.${body}`. Stripe recommends
+// additionally rejecting events whose timestamp is too old to prevent replaying
+// a captured request body. ~5 minutes of skew is generous for clock drift.
+const MAX_TIMESTAMP_SKEW_SECONDS = 300;
+
 async function verifyStripeSignature(body: string, signature: string, secret: string): Promise<boolean> {
   const parts = signature.split(",").reduce((acc: Record<string, string>, part) => {
     const [k, v] = part.split("=");
@@ -25,6 +30,12 @@ async function verifyStripeSignature(body: string, signature: string, secret: st
   const timestamp = parts["t"];
   const sig = parts["v1"];
   if (!timestamp || !sig) return false;
+
+  // Anti-replay: reject events older than the skew window (clock drift honored).
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > MAX_TIMESTAMP_SKEW_SECONDS) {
+    return false;
+  }
 
   const payload = `${timestamp}.${body}`;
   const key = await crypto.subtle.importKey(

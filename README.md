@@ -26,9 +26,12 @@ Supabase Edge Functions live in `supabase/functions/`:
 |----------|---------|
 | `generate-shopify-app` | Shopify pipeline: Architect → Engineer → Reviewer on the React Router template |
 | `generate-web-app` | React + Tailwind web-app pipeline |
-| `regenerate-file` | Re-generate a single file (Pro+) |
+| `regenerate-file` | Re-generate a single file in-place, target-aware (Pro+) |
+| `refine-project` | Conversational rebuild: apply a plain-English change to a generated project (Pro+) |
 | `evaluate-quality` | Standalone quality scoring |
 | `create-checkout-session` | Stripe checkout for plan upgrades |
+| `create-portal-session` | Stripe billing portal (manage/cancel subscription) |
+| `export-to-github` | Push a generated project to a GitHub repo and return its URL (Pro+) |
 | `stripe-webhook` | Handles subscription lifecycle events |
 
 Shared edge-function logic lives in `supabase/functions/_shared/`: `ai.ts` (multi-provider client), `quota.ts` + `plan-limits.ts` (unified metering/anti-abuse), and `shopify.ts` (pinned Admin API version + constants).
@@ -36,7 +39,7 @@ Shared edge-function logic lives in `supabase/functions/_shared/`: `ai.ts` (mult
 Deploy with the Supabase CLI:
 
 ```bash
-supabase functions deploy generate-ios-app --project-ref <ref>
+supabase functions deploy generate-shopify-app --project-ref <ref>
 ```
 
 ## Environment Variables
@@ -55,8 +58,16 @@ supabase functions deploy generate-ios-app --project-ref <ref>
 |--------|-------------|
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key (Studio plan) |
+| `OPENCODE_API_KEY` | Opencode Zen API key (Studio plan) |
 | `STRIPE_SECRET_KEY` | Stripe secret key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `STRIPE_PRO_PRICE_ID` | Stripe Price ID for the Pro plan ($29/mo) |
+| `STRIPE_STUDIO_PRICE_ID` | Stripe Price ID for the Studio plan ($99/mo) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for admin DB writes (never expose to the client) |
+| `ANON_IP_SALT` | HMAC salt used to hash anonymous user IPs for durable trial metering |
+| `MAX_GENERATION_COST_USD` | Optional per-request AI cost ceiling; defaults to 2.0 |
+| `GITHUB_TOKEN` | Fine-grained PAT (Contents read/write + Repositories create) for `export-to-github` |
+| `GITHUB_OWNER` | Optional GitHub owner/org to create exported repos under; defaults to the token's user |
 
 ## Architecture
 

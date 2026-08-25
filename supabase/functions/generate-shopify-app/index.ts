@@ -536,7 +536,7 @@ Deno.serve(async (req: Request) => {
           });
           const review = reviewer.toolArgs as { score: number; verdict: string; issues: { file?: string; message?: string; fix?: string }[] } | undefined;
           if (review) {
-            enqueue("progress", { phase: "reviewing", message: `[reviewer] Built for Shopify score: ${review.score}/100 — ${review.verdict}`, percent: -1 });
+            enqueue("progress", { phase: "reviewing", message: `[reviewer] Built-for-Shopify readiness score: ${review.score}/100 — ${review.verdict}`, percent: -1 });
             if (review.score < 70) {
               const topIssues = (review.issues ?? []).slice(0, 4).map((i) => `• [${i.file ?? "general"}] ${i.message ?? ""}${i.fix ? `\n  Fix: ${i.fix}` : ""}`).join("\n");
               const refiner = await callWithFallback({

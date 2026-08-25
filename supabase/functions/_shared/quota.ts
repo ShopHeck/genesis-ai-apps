@@ -101,7 +101,10 @@ export async function checkAnonQuota(supabase: SupabaseClient, ipHash: string): 
 export async function recordAnonGeneration(supabase: SupabaseClient, ipHash: string): Promise<void> {
   try {
     await supabase.from("anonymous_generations").insert({ ip_hash: ipHash });
-  } catch { /* metering write is non-fatal */ }
+  } catch (e) {
+    // Metering write is non-fatal, but a silent failure hides an uncounted trial.
+    console.error("[quota] recordAnonGeneration insert failed:", e instanceof Error ? e.message : e);
+  }
 }
 
 // ─── Generation persistence (authenticated history + cost metering) ──────
@@ -122,15 +125,31 @@ export interface GenerationRecord {
 export async function recordGeneration(supabase: SupabaseClient, row: GenerationRecord): Promise<void> {
   try {
     await supabase.from("generations").insert(row);
-  } catch { /* metering write is non-fatal — never block the user */ }
+  } catch (e) {
+    // Metering write is non-fatal (never block the user), but if it fails the
+    // generation is NEITHER counted against quota NOR saved to history AND the
+    // monthly spend sum misses it. Log loudly so it's observable.
+    console.error("[quota] recordGeneration insert failed:", e instanceof Error ? e.message : e);
+  }
 }
 
 // ─── In-memory burst limiter (per instance, sliding window) ──────────────
 const BURST_WINDOW_MS = 60_000;
 const BURST_MAX = 5;
+const BURST_MAP_HIGHWATER = 5_000; // bound per-instance memory; prune when exceeded
 const burstHits = new Map<string, number[]>();
 
+// Prune stale keys so a busy instance doesn't grow the map unboundedly.
+function maybeEvictBursts(): void {
+  if (burstHits.size <= BURST_MAP_HIGHWATER) return;
+  const cutoff = Date.now() - BURST_WINDOW_MS;
+  for (const [ip, hits] of burstHits) {
+    if (hits.length === 0 || hits[hits.length - 1] < cutoff) burstHits.delete(ip);
+  }
+}
+
 export function isBurstLimited(ip: string): boolean {
+  maybeEvictBursts();
   const now = Date.now();
   const hits = (burstHits.get(ip) ?? []).filter((t) => now - t < BURST_WINDOW_MS);
   if (hits.length >= BURST_MAX) {

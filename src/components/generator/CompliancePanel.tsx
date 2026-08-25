@@ -47,7 +47,7 @@ export function CompliancePanel({ report }: { report: ComplianceReport }) {
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <ShieldCheck size={16} className="text-primary" />
-          Built for Shopify compliance
+          Built-for-Shopify readiness (internal)
         </div>
         <div className="text-right">
           <span className={`font-display text-2xl font-bold ${scoreColor(report.score)}`}>

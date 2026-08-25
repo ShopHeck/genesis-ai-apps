@@ -11,7 +11,7 @@ import {
   checkUserQuota, checkAnonQuota, checkMonthlySpend, recordGeneration, recordAnonGeneration, isBurstLimited,
 } from "../_shared/quota.ts";
 import { providerAllowed } from "../_shared/plan-limits.ts";
-import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION, FORBIDDEN_IMPORT_SPECS, findForbiddenImports } from "../_shared/shopify.ts";
+import { COMMON_SCOPES, isProtectedScope, ADMIN_API_VERSION, FORBIDDEN_IMPORT_SPECS } from "../_shared/shopify.ts";
 import {
   getShopifyScaffoldFiles, getSelectedPolarisPatterns, scaffoldPaths,
   getAdminExtensionFiles, normalizeAdminBlock, ADMIN_EXTENSION_TARGETS,
@@ -19,6 +19,7 @@ import {
 } from "./scaffold.ts";
 import { getValidatedOperations, ADMIN_OPERATION_MENU } from "./graphql-operations.ts";
 import { runCompliance, complianceSummary } from "./compliance.ts";
+import { validateProject } from "./validate.ts";
 import { buildSubmissionKit } from "./submission-kit.ts";
 import { fetchStoreContext, storeContextPrompt } from "../_shared/shopify-admin.ts";
 import { createLogger } from "../_shared/log.ts";
@@ -284,62 +285,6 @@ function sseEvent(type: string, payload: Record<string, unknown>): string {
 
 interface ProjectFile { path: string; content: string }
 interface ShopifyProject { appName: string; summary: string; files: ProjectFile[] }
-
-function validateProject(project: ShopifyProject, plan?: Record<string, unknown>): { errors: string[]; warnings: string[] } {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const byPath = new Map(project.files.map((f) => [f.path, f.content]));
-
-  for (const req of ["prisma/schema.prisma", "app/routes/app._index.tsx"]) {
-    if (!byPath.has(req)) errors.push(`Missing required file: ${req}`);
-  }
-
-  const schema = byPath.get("prisma/schema.prisma") ?? "";
-  if (schema && !/model\s+Session\s*\{/.test(schema)) {
-    errors.push("prisma/schema.prisma is missing the required Session model.");
-  }
-
-  // Production-completeness: a bloated plan that produces truncated screens is the
-  // single biggest quality failure, so compare the plan's screen count against the
-  // number of app route files that actually came back. Count-based (not exact path)
-  // so a sensible file rename doesn't falsely fail the build; a big shortfall is a
-  // real "the app is half-built" signal.
-  const plannedScreens = Array.isArray(plan?.screens) ? (plan.screens as { route?: string; name?: string }[]) : [];
-  if (plannedScreens.length > 0) {
-    const implementedRoutes = project.files.filter((f) => /^app\/routes\/app\..*\.tsx$/.test(f.path)).map((f) => f.path);
-    if (implementedRoutes.length < plannedScreens.length) {
-      warnings.push(`Completeness: plan declares ${plannedScreens.length} screen(s) but ${implementedRoutes.length} app route file(s) were generated — screens may be missing`);
-    }
-  }
-
-  // Every app route should authenticate before touching store data.
-  for (const f of project.files) {
-    if (/^app\/routes\/app\..*\.tsx$/.test(f.path)) {
-      if ((/export\s+(const|async\s+function)\s+loader/.test(f.content) || /export\s+(const|async\s+function)\s+action/.test(f.content))
-        && !/authenticate\.admin\s*\(/.test(f.content)) {
-        warnings.push(`${f.path}: loader/action does not call authenticate.admin`);
-      }
-    }
-    if (/\bTODO\b|placeholder|not implemented/i.test(f.content)) {
-      warnings.push(`${f.path}: may contain placeholder/TODO content`);
-    }
-    // Screen routes must actually render — a route with no default component is dead UI.
-    if (/^app\/routes\/app\..*\.tsx$/.test(f.path) && !/export\s+default\s+(?:async\s+)?function/.test(f.content)) {
-      warnings.push(`${f.path}: screen route has no default-exported component (won't render)`);
-    }
-    // Production hygiene: no debug prints left in a merchant-facing deliverable.
-    if (/\bconsole\.(log|debug|info)\b|\bdebugger\b/.test(f.content)) {
-      warnings.push(`${f.path}: contains console.log/debugger — remove for production`);
-    }
-    // Compile-viability hard gate: the react-router template installs only the
-    // whitelisted packages; a legacy Remix/AppBridge import breaks `shopify app dev`.
-    const forbidden = findForbiddenImports(f.content);
-    if (forbidden.length) {
-      errors.push(`${f.path}: imports non-installed package (${forbidden.join(", ")}) — will not compile; use ${FORBIDDEN_IMPORT_SPECS.length} whitelisted packages`);
-    }
-  }
-  return { errors, warnings };
-}
 
 async function callWithFallback(opts: {
   provider: Provider; apiKey: string; model: string; system: string; userMessage: string;
@@ -629,7 +574,7 @@ Deno.serve(async (req: Request) => {
                 `Full contents of the files to change (only these are shown; keep your changes inside them):\n${refContext}\n\n` +
                 `Hard rules still apply — NEVER import ${FORBIDDEN_IMPORT_SPECS.join(", ")}; TypeScript strict; return complete files, not diffs.\n\n` +
                 `Return ONLY the fully-patched files that fix the issues. Do not return a file if no change is needed.`,
-              tool: TOOL_PATCH, maxTokens: 50000, timeoutMs: 150_000, enqueue,
+              tool: TOOL_PATCH, maxTokens: 24000, timeoutMs: 100_000, enqueue,
             });
             const patches = refiner.toolArgs?.files as ProjectFile[] | undefined;
             if (!patches?.length) {

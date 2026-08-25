@@ -62,11 +62,11 @@ function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
-async function resolveOwner(): Promise<{ owner: string; error: string | null }> {
-  if (GITHUB_OWNER) return { owner: GITHUB_OWNER, error: null };
+async function resolveOwner(): Promise<{ owner: string; isOrg: boolean; error: string | null }> {
+  if (GITHUB_OWNER) return { owner: GITHUB_OWNER, isOrg: true, error: null };
   const { data, error } = await gh("/user");
-  if (error) return { owner: "", error };
-  return { owner: str(data.login), error: null };
+  if (error) return { owner: "", isOrg: false, error };
+  return { owner: str(data.login), isOrg: false, error: null };
 }
 
 Deno.serve(async (req: Request) => {
@@ -99,8 +99,9 @@ Deno.serve(async (req: Request) => {
 
   // Pro+ only — this creates a repo (a real side effect) and uses API quota.
   const adminSupabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: planData } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
-  if ((planData as string) === "free") {
+  const { data: planData, error: planErr } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
+  const plan = (planData as string) ?? null;
+  if (planErr || (plan !== "pro" && plan !== "studio")) {
     return new Response(JSON.stringify({ error: "GitHub export requires a Pro or Studio plan. Upgrade at /pricing." }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -113,7 +114,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { owner, error: ownerErr } = await resolveOwner();
+  const { owner, isOrg, error: ownerErr } = await resolveOwner();
   if (ownerErr || !owner) {
     return new Response(JSON.stringify({ error: `Could not resolve the GitHub owner: ${ownerErr ?? "unknown"}` }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -128,8 +129,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 1) Create the repo.
-    const { data: repo, error: repoErr } = await gh(`/repos/${owner}/${slug}`, {
+    // 1) Create the repo. GitHub has no POST /repos/{owner}/{repo}: personal repos
+    // use POST /user/repos, org repos use POST /orgs/{org}/repos.
+    const createPath = isOrg ? `/orgs/${owner}/repos` : `/user/repos`;
+    const { data: repo, error: repoErr } = await gh(createPath, {
       method: "POST",
       body: {
         name: slug,
@@ -176,25 +179,37 @@ Deno.serve(async (req: Request) => {
     });
     if (treeErr) throw new Error(`tree: ${treeErr}`);
 
-    const { data: ref, error: refErr } = await gh(`/repos/${fullName}/git/ref/heads/${defaultBranch}`);
-    if (refErr) throw new Error(`ref: ${refErr}`);
-
-    const parentSha = str((ref.object as Json)?.sha);
+    // First commit is a root commit (no parents) because auto_init:false leaves
+    // the repo with no branch ref yet.
     const { data: commit, error: commitErr } = await gh(`/repos/${fullName}/git/commits`, {
       method: "POST",
       body: {
         message: `Generated with ApexBuild: ${appName ?? "app"}`,
         tree: treeRes.sha,
-        parents: [parentSha],
+        parents: [],
       },
     });
     if (commitErr) throw new Error(`commit: ${commitErr}`);
 
-    const { error: refUpdateErr } = await gh(`/repos/${fullName}/git/refs/heads/${defaultBranch}`, {
-      method: "PATCH",
-      body: { sha: commit.sha, force: true },
+    // 3) Bootstrap the branch ref (URL-encode the ref). auto_init:false → no ref
+    // exists, so create it; if it somehow already exists, update it instead.
+    const refName = `refs/heads/${defaultBranch}`;
+    const encodedRef = encodeURIComponent(refName);
+    const { error: refCreateErr } = await gh(`/repos/${fullName}/git/refs`, {
+      method: "POST",
+      body: { ref: refName, sha: commit.sha },
     });
-    if (refUpdateErr) throw new Error(`ref update: ${refUpdateErr}`);
+    if (refCreateErr) {
+      if (refCreateErr.toLowerCase().includes("already exists")) {
+        const { error: refUpdateErr } = await gh(`/repos/${fullName}/git/refs/${encodedRef}`, {
+          method: "PATCH",
+          body: { sha: commit.sha, force: true },
+        });
+        if (refUpdateErr) throw new Error(`ref update: ${refUpdateErr}`);
+      } else {
+        throw new Error(`ref create: ${refCreateErr}`);
+      }
+    }
 
     return new Response(JSON.stringify({
       repoUrl: str(repo.html_url),

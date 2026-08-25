@@ -55,11 +55,11 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Plan check — Pro+ only
+  // Plan check — Pro+ only (fail closed: an RPC error or unknown plan is rejected).
   const adminSupabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: planData } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
-  const plan = (planData as string) ?? "free";
-  if (plan === "free") {
+  const { data: planData, error: planErr } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
+  const plan = (planData as string) ?? null;
+  if (planErr || (plan !== "pro" && plan !== "studio")) {
     return new Response(JSON.stringify({ error: "File regeneration requires a Pro or Studio plan. Upgrade at /pricing." }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

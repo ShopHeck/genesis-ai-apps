@@ -93,6 +93,7 @@ export default function Dashboard() {
         .from("generations")
         .select("id, app_name, bundle_id, summary, prompt, files_count, model_used, status, created_at, target, review_score, parent_generation_id")
         .eq("user_id", user!.id)
+        .eq("kind", "build")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;

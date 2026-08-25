@@ -90,6 +90,7 @@ export type Database = {
           target: string | null
           review_score: number | null
           parent_generation_id: string | null
+          kind: string | null
           created_at: string
         }
         Insert: {
@@ -107,6 +108,7 @@ export type Database = {
           target?: string | null
           review_score?: number | null
           parent_generation_id?: string | null
+          kind?: string | null
           created_at?: string
         }
         Update: {
@@ -124,6 +126,7 @@ export type Database = {
           target?: string | null
           review_score?: number | null
           parent_generation_id?: string | null
+          kind?: string | null
           created_at?: string
         }
         Relationships: []

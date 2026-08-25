@@ -14,7 +14,7 @@ for dir in samples/*/; do
     echo "  - tsc --noEmit"
     npx tsc --noEmit
     echo "  - eslint ."
-    npx eslint . || true # lint warnings are non-fatal; errors would exit non-zero above
+    npx eslint .  # exit 0 on warnings by default; errors fail the sample
   )
 done
 

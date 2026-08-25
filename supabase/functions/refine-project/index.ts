@@ -19,6 +19,8 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAI, AIError, AITool, DEFAULT_MODELS, getApiKey, Provider } from "../_shared/ai.ts";
 import { codeAssistantRules, normalizeTarget } from "../_shared/code-prompts.ts";
+import { estimateCost } from "../_shared/cost.ts";
+import { recordGeneration, checkMonthlySpend } from "../_shared/quota.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,8 +85,14 @@ function buildProjectContext(files: { path: string; content: string }[]): { text
       break;
     }
     const f = files[i];
-    const body = f.content.length > MAX_FILE_CHARS ? f.content.slice(0, MAX_FILE_CHARS) + "\n/* …truncated… */" : f.content;
-    const block = `// === ${f.path} ===\n${body}\n\n`;
+    // Never inline a file partially. A file too large to send in full is listed
+    // in the manifest only, so the model cannot return a truncated version that
+    // the client then uses to overwrite the real file (silent data loss).
+    if (f.content.length > MAX_FILE_CHARS) {
+      truncated = true;
+      continue;
+    }
+    const block = `// === ${f.path} ===\n${f.content}\n\n`;
     if (block.length > budget) {
       truncated = true;
       break;
@@ -94,7 +102,7 @@ function buildProjectContext(files: { path: string; content: string }[]): { text
   }
 
   if (truncated) {
-    parts.push("(Some files were omitted for size. Do NOT edit files whose content was not provided; if you must, include their complete replacement content.)\n");
+    parts.push("(Some files were omitted because they were too large to send in full. Only edit files whose full content is shown above. Leave any file that is not fully shown unchanged - use the per-file Regenerate action to modify it safely.)\n");
   }
   return { text: parts.join(""), truncated };
 }
@@ -126,9 +134,9 @@ Deno.serve(async (req: Request) => {
 
   // Pro+ only.
   const adminSupabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: planData } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
-  const plan = (planData as string) ?? "free";
-  if (plan === "free") {
+  const { data: planData, error: planErr } = await adminSupabase.rpc("get_user_plan", { p_user_id: user.id });
+  const plan = (planData as string) ?? null;
+  if (planErr || (plan !== "pro" && plan !== "studio")) {
     return new Response(JSON.stringify({ error: "Iterative refinement requires a Pro or Studio plan. Upgrade at /pricing." }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -156,6 +164,18 @@ Deno.serve(async (req: Request) => {
   }
 
   const target = normalizeTarget(rawTarget);
+
+  // Monthly AI spend cap (cost guard). Refinement is Pro/Studio-only and each call
+  // costs an engineer call; charge it against the ceiling so the iterative loop
+  // can't bypass the per-plan spend cap.
+  const refineCost = estimateCost(provider, "engineer");
+  const spend = await checkMonthlySpend(adminSupabase, user.id, plan, refineCost);
+  if (!spend.allowed) {
+    return new Response(JSON.stringify({ error: `Monthly AI spend cap reached ($${spend.spent.toFixed(2)} of $${spend.limit}). Upgrade your plan or try again next month.` }), {
+      status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const ctx = buildProjectContext(files as { path: string; content: string }[]);
 
   const userMessage = `Target stack: ${target}
@@ -184,6 +204,19 @@ Return ONLY the files you changed, each with its complete new content. Preserve 
     const patch = (result.toolArgs ?? {}) as { files?: { path: string; content: string }[]; summary?: string };
     const patchedFiles = (patch.files ?? []).filter((f) => f?.path && typeof f.content === "string");
     if (patchedFiles.length === 0) throw new Error("The model produced no file changes. Try being more specific.");
+
+    // Meter the refinement against the monthly spend cap. kind='refine' so it does
+    // NOT consume build quota or clutter the project dashboard.
+    await recordGeneration(adminSupabase, {
+      user_id: user.id,
+      prompt: instruction,
+      summary: `${appContext?.appName ?? "App"} (refined)`,
+      status: "success",
+      cost_usd: refineCost,
+      model_used: DEFAULT_MODELS[provider].engineer,
+      target,
+      kind: "refine",
+    });
 
     return new Response(JSON.stringify({ files: patchedFiles, summary: patch.summary }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

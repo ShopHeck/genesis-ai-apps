@@ -120,6 +120,7 @@ export interface GenerationRecord {
   model_used?: string;
   cost_usd?: number;
   target?: string;
+  kind?: "build" | "refine";
 }
 
 export async function recordGeneration(supabase: SupabaseClient, row: GenerationRecord): Promise<void> {

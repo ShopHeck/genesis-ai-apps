@@ -47,3 +47,47 @@ export const PROTECTED_DATA_SCOPES = [
 export function isProtectedScope(scope: string): boolean {
   return (PROTECTED_DATA_SCOPES as readonly string[]).includes(scope);
 }
+
+// ── Compile-viability guard ──────────────────────────────────────────────
+// The generator targets the official React Router template, which installs
+// ONLY @shopify/shopify-app-react-router + react-router (NOT the legacy Remix
+// packages). A model trained on older Shopify/Remix boilerplate will sometimes
+// emit @remix-run/* or @shopify/shopify-app-remix/* imports — those packages
+// aren't installed, so the generated app fails `shopify app dev` with a
+// module-not-found error. These specs are the single source of truth used by
+// the engineer prompt, the deterministic validator, and the compliance check,
+// so they can't drift apart.
+
+export const FORBIDDEN_IMPORT_SPECS = [
+  "@remix-run",
+  "@shopify/shopify-app-remix",
+  "@shopify/app-bridge", // bare or subpath; @shopify/app-bridge-react IS allowed
+  "@shopify/shopify-app-express",
+  "@shopify/shopify-app-rest",
+  "stimulus",
+] as const;
+
+// A specifier is forbidden if it equals a forbidden entry (e.g. "@remix-run")
+// or is a subpath of one (e.g. "@remix-run/node", "@shopify/shopify-app-remix/server").
+// NOTE: "@shopify/app-bridge-react" is NOT matched because it does not start
+// with "@shopify/app-bridge/" — only the legacy bare/subpath form is caught.
+export function isForbiddenImportSpec(spec: string): boolean {
+  return FORBIDDEN_IMPORT_SPECS.some((f) => spec === f || spec.startsWith(`${f}/`));
+}
+
+// Scan file content for any import/require of a forbidden package. Returns the
+// offending specifiers (deduped, in encounter order). Used to hard-gate a
+// non-compiling generated app before it is delivered.
+export function findForbiddenImports(content: string): string[] {
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const re = /(?:from\s*|import\s+|require\s*\(\s*)["']([^"']+)["']/g;
+  for (const m of content.matchAll(re)) {
+    const spec = m[1];
+    if (isForbiddenImportSpec(spec) && !seen.has(spec)) {
+      seen.add(spec);
+      found.push(spec);
+    }
+  }
+  return found;
+}
